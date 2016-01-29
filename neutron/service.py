@@ -28,6 +28,7 @@ from oslo_utils import importutils
 
 from neutron._i18n import _, _LE, _LI
 from neutron.common import config
+from neutron.common import profiler
 from neutron.common import rpc as n_rpc
 from neutron import context
 from neutron.db import api as session
@@ -85,6 +86,9 @@ class WsgiService(object):
 
 class NeutronApiService(WsgiService):
     """Class for neutron-api service."""
+    def __init__(self, app_name):
+        profiler.setup('neutron-server', cfg.CONF.host)
+        super(NeutronApiService, self).__init__(app_name)
 
     @classmethod
     def create(cls, app_name='neutron'):
@@ -267,6 +271,7 @@ class Service(n_rpc.Service):
         self.periodic_fuzzy_delay = periodic_fuzzy_delay
         self.saved_args, self.saved_kwargs = args, kwargs
         self.timers = []
+        profiler.setup(binary, host)
         super(Service, self).__init__(host, topic, manager=self.manager)
 
     def start(self):

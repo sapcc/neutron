@@ -22,6 +22,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import loopingcall
 from oslo_service import service
+from osprofiler import profiler
 
 from neutron._i18n import _LE, _LI
 from neutron.agent.l2.extensions import manager as ext_manager
@@ -38,6 +39,7 @@ from neutron.plugins.ml2.drivers.agent import config as cagt_config  # noqa
 LOG = logging.getLogger(__name__)
 
 
+@profiler.trace_cls("rpc")
 class CommonAgentLoop(service.Service):
 
     def __init__(self, manager, polling_interval,
