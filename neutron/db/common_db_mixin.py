@@ -17,6 +17,8 @@ import contextlib
 import weakref
 
 from debtcollector import removals
+from neutron_lib.db import utils as db_utils
+from oslo_db.sqlalchemy import utils as sa_utils
 from oslo_log import log as logging
 from oslo_utils import excutils
 import six
@@ -27,7 +29,6 @@ from sqlalchemy import sql
 
 from neutron._i18n import _, _LE
 from neutron.common import exceptions as n_exc
-from neutron.db import sqlalchemyutils
 
 LOG = logging.getLogger(__name__)
 
@@ -295,11 +296,13 @@ class CommonDbMixin(object):
         collection = self._model_query(context, model)
         collection = self._apply_filters_to_query(collection, model, filters,
                                                   context)
-        if limit and page_reverse and sorts:
-            sorts = [(s[0], not s[1]) for s in sorts]
-        collection = sqlalchemyutils.paginate_query(collection, model, limit,
-                                                    sorts,
-                                                    marker_obj=marker_obj)
+        if sorts:
+            sort_keys = db_utils.get_and_validate_sort_keys(sorts, model)
+            sort_dirs = db_utils.get_sort_dirs(sorts, page_reverse)
+            collection = sa_utils.paginate_query(collection, model, limit,
+                                                 marker=marker_obj,
+                                                 sort_keys=sort_keys,
+                                                 sort_dirs=sort_dirs)
         return collection
 
     def _get_collection(self, context, model, dict_func, filters=None,
