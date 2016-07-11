@@ -30,6 +30,14 @@ from neutron.common import exceptions as n_exc
 from neutron.db import common_db_mixin
 
 
+def set_hook(engine):
+    if cfg.CONF.profiler.enabled and cfg.CONF.profiler.trace_sqlalchemy:
+        osprofiler.sqlalchemy.add_tracing(sqlalchemy, engine, 'neutron.db')
+
+
+
+context_manager.append_on_engine_create(set_hook)
+
 _FACADE = None
 
 MAX_RETRIES = 10

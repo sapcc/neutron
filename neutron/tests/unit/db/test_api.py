@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import mock
+from oslo_config import cfg
 from oslo_db import exception as db_exc
+import osprofiler
+import sqlalchemy
 from sqlalchemy.orm import exc
 import testtools
 
@@ -82,3 +86,17 @@ class TestDeadLockDecorator(base.BaseTestCase):
         e = exceptions.MultipleExceptions([ValueError(), db_exc.DBDeadlock()])
         with testtools.ExpectedException(exceptions.MultipleExceptions):
             self._decorated_function(db_api.MAX_RETRIES + 1, e)
+
+
+
+class TestCommonDBfunctions(base.BaseTestCase):
+
+    def test_set_hook(self):
+        with mock.patch.object(osprofiler.sqlalchemy,
+                               'add_tracing') as profiler:
+            cfg.CONF.set_override('enabled', True, group='profiler')
+            cfg.CONF.set_override('trace_sqlalchemy', True, group='profiler')
+            engine_mock = mock.Mock()
+            db_api.set_hook(engine_mock)
+            profiler.assert_called_with(sqlalchemy, engine_mock,
+                                        'neutron.db')
