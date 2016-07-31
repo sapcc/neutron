@@ -1710,16 +1710,15 @@ class TestDnsmasq(TestBase):
         dnsmasq._output_hosts_file = mock.Mock()
         dnsmasq._release_lease = mock.Mock()
         dnsmasq.network.ports = []
-        dnsmasq.device_manager.driver.unplug = mock.Mock()
+        dnsmasq.device_manager.unplug = mock.Mock()
 
         dnsmasq._release_unused_leases()
 
         dnsmasq._release_lease.assert_has_calls([mock.call(mac1, ip1, None),
                                                  mock.call(mac2, ip2, None)],
                                                 any_order=True)
-        dnsmasq.device_manager.driver.unplug.assert_has_calls(
-            [mock.call(dnsmasq.interface_name,
-                       namespace=dnsmasq.network.namespace)])
+        dnsmasq.device_manager.unplug.assert_has_calls(
+            [mock.call(dnsmasq.interface_name, dnsmasq.network)])
 
     def test_release_for_ipv6_lease(self):
         dnsmasq = self._get_dnsmasq(FakeDualNetwork())
@@ -1753,6 +1752,8 @@ class TestDnsmasq(TestBase):
         dnsmasq.device_manager.get_device_id = mock.Mock(
             return_value='fake_dhcp_port')
         dnsmasq._release_unused_leases()
+        self.assertFalse(
+            dnsmasq.device_manager.unplug.called)
         self.assertFalse(
             dnsmasq.device_manager.driver.unplug.called)
 
