@@ -21,6 +21,7 @@ from oslo_db import api as oslo_db_api
 from oslo_db import exception as db_exc
 from oslo_db.sqlalchemy import session
 from oslo_utils import excutils
+from osprofiler import opts as profiler_opts
 from oslo_utils import uuidutils
 from sqlalchemy.orm import exc
 import osprofiler.sqlalchemy
@@ -36,6 +37,12 @@ def set_hook(engine):
 
 
 
+
+# TODO(ihrachys) the hook assumes options defined by osprofiler, and the only
+# public function that is provided by osprofiler that will register them is
+# set_defaults, that's why we call it here even though we don't need to change
+# defaults
+profiler_opts.set_defaults(cfg.CONF)
 context_manager.append_on_engine_create(set_hook)
 
 _FACADE = None
