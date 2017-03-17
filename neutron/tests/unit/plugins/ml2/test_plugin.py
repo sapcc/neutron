@@ -1057,7 +1057,7 @@ class TestMl2DvrPortsV2(TestMl2PortsV2):
         r = plugin.create_router(
             self.context,
             {'router': {'name': 'router', 'admin_state_up': True,
-             'tenant_id': self.context.tenant_id}})
+             'tenant_id': 'fake_tenant'}})
         with self.subnet() as s:
             p = plugin.add_router_interface(self.context, r['id'],
                                             {'subnet_id': s['subnet']['id']})
