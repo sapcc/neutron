@@ -203,10 +203,13 @@ class CommonAgentLoop(service.Service):
         # If one of the above operations fails => resync with plugin
         return (resync_a | resync_b)
 
+    def _get_devices_details_list(self, devices):
+        return self.plugin_rpc.get_devices_details_list(
+                self.context, devices, self.agent_id, host=cfg.CONF.host)
+
     def treat_devices_added_updated(self, devices):
         try:
-            devices_details_list = self.plugin_rpc.get_devices_details_list(
-                self.context, devices, self.agent_id, host=cfg.CONF.host)
+            devices_details_list = self._get_devices_details_list(devices)
         except Exception:
             LOG.exception(_LE("Unable to get port details for %s"), devices)
             # resync is needed
