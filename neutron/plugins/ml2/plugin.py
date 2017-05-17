@@ -890,6 +890,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def create_subnet(self, context, subnet):
         result, mech_context = self._create_subnet_db(context, subnet)
+        kwargs = {'context': context, 'subnet': result}
+        registry.notify(resources.SUBNET, events.AFTER_CREATE, self, **kwargs)        
+        
         try:
             self.mechanism_manager.create_subnet_postcommit(mech_context)
         except ml2_exc.MechanismDriverError:
