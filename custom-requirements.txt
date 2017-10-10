@@ -1,8 +1,8 @@
--e hash-ring # required for ACI
--e jsonrpclib # required for Arista
--e ciscoconfparse # required for cisco
--e oslo.vmware # required for DVS
--e pyasn1_modules # required for F5
+hash-ring
+jsonrpclib
+ciscoconfparse
+oslo.vmware
+pyasn1_modules
 
 -e git+https://github.com/sapcc/openstack-ops-middleware.git@0.0.6#egg=ops-middleware
 -e git+https://github.com/sapcc/networking-manila.git#egg=networking_manila
