@@ -1,0 +1,18 @@
+hash-ring # required for ACI
+jsonrpclib # required for Arista
+ciscoconfparse # required for cisco
+oslo.vmware # required for DVS
+pyasn1_modules # required for F5
+
+-e git+https://github.com/sapcc/openstack-ops-middleware.git@0.0.6#egg=ops-middleware
+-e git+https://github.com/sapcc/networking-manila.git#egg=networking_manila
+-e git+https://github.com/sapcc/networking-aci.git@stable/mitaka-m3#egg=networking_aci
+-e git+https://github.com/sapcc/networking-arista@stable/mitaka-hpb#egg=networking_arista
+-e git+https://github.com/ncclient/ncclient.git@master
+-e git+https://github.com/sapcc/networking-cisco.git@stable/mitaka-m3#egg=networking-cisco
+-e git+https://github.com/sapcc/networking-asr.git@stable/mitaka-m3#egg=networking_asr
+-e git+https://github.com/sapcc/networking-dvs.git@stable/mitaka-m3#egg=networking_dvs
+-e git+https://github.com/sapcc/networking-f5-ml2.git@stable/mitaka-m3#egg=networking_f5_ml2
+-e git+https://github.com/sapcc/neutron-lbaas@stable/mitaka-m3#egg=neutron-lbaas
+-e git+https://github.com/sapcc/f5-openstack-lbaasv2-driver@mitaka-m3#egg=f5-openstack-lbaasv2-driver
+-e git+https://github.com/sapcc/f5-openstack-agent@mitaka-m3#egg=f5-openstack-agent
