@@ -74,7 +74,7 @@ class PortBinding(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port,
         backref=orm.backref("port_binding",
-                            lazy='joined', uselist=False,
+                            lazy='subquery', uselist=False,
                             cascade='delete'))
 
 
@@ -127,5 +127,5 @@ class DVRPortBinding(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port,
         backref=orm.backref("dvr_port_binding",
-                            lazy='joined',
+                            lazy='subquery',
                             cascade='delete'))

@@ -35,7 +35,7 @@ class AllowedAddressPair(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port,
         backref=orm.backref("allowed_address_pairs",
-                            lazy="joined", cascade="delete"))
+                            lazy="subquery", cascade="delete"))
 
 
 class AllowedAddressPairsMixin(object):

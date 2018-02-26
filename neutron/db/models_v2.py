@@ -120,7 +120,7 @@ class Port(model_base.HasStandardAttributes, model_base.BASEV2,
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
     network_id = sa.Column(sa.String(36), sa.ForeignKey("networks.id"),
                            nullable=False)
-    fixed_ips = orm.relationship(IPAllocation, backref='port', lazy='joined',
+    fixed_ips = orm.relationship(IPAllocation, backref='port', lazy='subquery',
                                  cascade='all, delete-orphan')
 
     mac_address = sa.Column(sa.String(32), nullable=False)
@@ -197,18 +197,18 @@ class Subnet(model_base.HasStandardAttributes, model_base.BASEV2,
     gateway_ip = sa.Column(sa.String(64))
     allocation_pools = orm.relationship(IPAllocationPool,
                                         backref='subnet',
-                                        lazy="joined",
+                                        lazy="subquery",
                                         cascade='delete')
     enable_dhcp = sa.Column(sa.Boolean())
     dns_nameservers = orm.relationship(DNSNameServer,
                                        backref='subnet',
                                        cascade='all, delete, delete-orphan',
                                        order_by=DNSNameServer.order,
-                                       lazy='joined')
+                                       lazy='subquery')
     routes = orm.relationship(SubnetRoute,
                               backref='subnet',
                               cascade='all, delete, delete-orphan',
-                              lazy='joined')
+                              lazy='subquery')
     ipv6_ra_mode = sa.Column(sa.Enum(constants.IPV6_SLAAC,
                                      constants.DHCPV6_STATEFUL,
                                      constants.DHCPV6_STATELESS,
@@ -258,7 +258,7 @@ class SubnetPool(model_base.HasStandardAttributes, model_base.BASEV2,
     prefixes = orm.relationship(SubnetPoolPrefix,
                                 backref='subnetpools',
                                 cascade='all, delete, delete-orphan',
-                                lazy='joined')
+                                lazy='subquery')
 
 
 class Network(model_base.HasStandardAttributes, model_base.BASEV2,
