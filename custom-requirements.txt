@@ -6,7 +6,8 @@ pyasn1_modules
 redis
 dumb-init
 
--e git+https://github.com/sapcc/openstack-ops-middleware.git@0.0.6#egg=ops-middleware
+-e git+https://github.com/sapcc/raven-python.git#egg=raven
+-e git+https://github.com/sapcc/openstack-ops-middleware.git#egg=ops-middleware
 -e git+https://github.com/sapcc/openstack-audit-middleware.git#egg=audit-middleware
 -e git+https://github.com/sapcc/networking-manila.git#egg=networking_manila
 -e git+https://github.com/sapcc/networking-aci.git@stable/mitaka-m3#egg=networking_aci
