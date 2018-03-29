@@ -26,8 +26,6 @@ metadata_proxy: CommandFilter, neutron-ns-metadata-proxy, root
 # RHEL invocation of the metadata proxy will report /usr/bin/python
 kill_metadata: KillFilter, root, python, -9
 kill_metadata7: KillFilter, root, python2.7, -9
-# SAPCC: for killing neutron-ns-metadata-proxy on CC
-kill_metadata2: KillFilter, root, python2, -9
 
 # ip_lib
 ip: IpFilter, ip, root
