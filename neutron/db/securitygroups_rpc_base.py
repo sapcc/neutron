@@ -13,7 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import six
 import netaddr
+import ipaddress
 from oslo_log import log as logging
 from sqlalchemy.orm import exc
 
@@ -283,10 +285,14 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         # will have a duplicate regular IP in the query response since
         # the relationship is 1-to-many. Dedup with a set
         for security_group_id, ip_address, allowed_addr_ip in query:
-            ips_by_group[security_group_id].add(ip_address)
+            ips_by_group[security_group_id].add(ipaddress.ip_network(ip_address, False))
             if allowed_addr_ip:
-                ips_by_group[security_group_id].add(allowed_addr_ip)
-        return ips_by_group
+                ips_by_group[security_group_id].add(ipaddress.ip_network(allowed_addr_ip, False))
+        ips_by_group2 = dict()
+        for security_group_id, ips in six.iteritems(ips_by_group):
+            ips_by_group2[security_group_id] = [str(net)
+                                                for net in ipaddress.collapse_addresses(ips)]
+        return ips_by_group2
 
     def _select_remote_group_ids(self, ports):
         remote_group_ids = []
