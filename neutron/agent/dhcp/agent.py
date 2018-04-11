@@ -69,9 +69,16 @@ class DhcpAgent(manager.Manager):
         self._process_monitor = external_process.ProcessMonitor(
             config=self.conf,
             resource_type='dhcp')
+        self._inital_sync = False
 
     def init_host(self):
         self.sync_state()
+        self._inital_sync = True
+
+    def dhcp_agent_ready(self, context):
+        """First sync done?"""
+        LOG.debug("Got Ready request, replying with %s" % self._inital_sync)
+        return self._inital_sync
 
     def _populate_networks_cache(self):
         """Populate the networks cache when the DHCP-agent starts."""
