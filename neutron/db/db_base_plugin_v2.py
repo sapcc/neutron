@@ -459,6 +459,10 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 error_message = _("Multicast IP subnet is not supported "
                                   "if enable_dhcp is True.")
                 raise n_exc.InvalidInput(error_message=error_message)
+            elif net.network == netaddr.IPAddress('0.0.0.0'):
+                error_message = _("%s Subnet is not supported "
+                                  "if enable_dhcp is True." % net.network)
+                raise n_exc.InvalidInput(error_message=error_message)
             elif net.is_loopback():
                 error_message = _("Loopback IP subnet is not supported "
                                   "if enable_dhcp is True.")
