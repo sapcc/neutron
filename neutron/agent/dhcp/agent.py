@@ -99,7 +99,22 @@ class DhcpAgent(manager.Manager):
         self._queue = queue.ResourceProcessingQueue()
 
     def init_host(self):
+        try:
+            os.remove("/var/lib/neutron/neutron-dhcp-agent-ready")
+        except Exception:
+            pass
+
         self.sync_state()
+
+        try:
+            open('/var/lib/neutron/neutron-dhcp-agent-ready', 'w+').close()
+        except IOError as err:
+            LOG.warning('could not create ready file: %s', err)
+
+    def dhcp_agent_ready(self, context):
+        """First sync done?"""
+        LOG.debug("Got Ready request, replying with %s" % self._inital_sync)
+        return self._inital_sync
 
     def _populate_networks_cache(self):
         """Populate the networks cache when the DHCP-agent starts."""
