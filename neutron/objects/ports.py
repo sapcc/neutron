@@ -263,7 +263,8 @@ class Port(base.NeutronDbObject):
     # Version 1.0: Initial version
     # Version 1.1: Add data_plane_status field
     # Version 1.2: Added segment_id to binding_levels
-    VERSION = '1.2'
+    # Version 1.3: distributed_binding -> distributed_bindings
+    VERSION = '1.3'
 
     db_model = models_v2.Port
 
@@ -290,7 +291,7 @@ class Port(base.NeutronDbObject):
         'dhcp_options': obj_fields.ListOfObjectsField(
             'ExtraDhcpOpt', nullable=True
         ),
-        'distributed_binding': obj_fields.ObjectField(
+        'distributed_bindings': obj_fields.ListOfObjectsField(
             'DistributedPortBinding', nullable=True
         ),
         'dns': obj_fields.ObjectField('PortDNS', nullable=True),
@@ -326,7 +327,7 @@ class Port(base.NeutronDbObject):
         'binding_levels',
         'data_plane_status',
         'dhcp_options',
-        'distributed_binding',
+        'distributed_bindings',
         'dns',
         'fixed_ips',
         'qos_policy_id',
@@ -337,7 +338,7 @@ class Port(base.NeutronDbObject):
     fields_need_translation = {
         'binding': 'port_binding',
         'dhcp_options': 'dhcp_opts',
-        'distributed_binding': 'distributed_port_binding',
+        'distributed_bindings': 'distributed_port_binding',
         'security': 'port_security',
     }
 
@@ -405,27 +406,37 @@ class Port(base.NeutronDbObject):
         return super(Port, cls).get_objects(context, _pager, validate_filters,
                                             **kwargs)
 
-    # TODO(rossella_s): get rid of it once we switch the db model to using
-    # custom types.
     @classmethod
     def modify_fields_to_db(cls, fields):
         result = super(Port, cls).modify_fields_to_db(fields)
+
+        # TODO(rossella_s): get rid of it once we switch the db model to using
+        # custom types.
         if 'mac_address' in result:
             result['mac_address'] = cls.filter_to_str(result['mac_address'])
+
+        # convert None to []
+        if 'distributed_port_binding' in result:
+            result['distributed_port_binding'] = (
+                result['distributed_port_binding'] or []
+            )
         return result
 
-    # TODO(rossella_s): get rid of it once we switch the db model to using
-    # custom types.
     @classmethod
     def modify_fields_from_db(cls, db_obj):
         fields = super(Port, cls).modify_fields_from_db(db_obj)
+
+        # TODO(rossella_s): get rid of it once we switch the db model to using
+        # custom types.
         if 'mac_address' in fields:
             fields['mac_address'] = utils.AuthenticEUI(fields['mac_address'])
-        distributed_port_binding = fields.get('distributed_binding')
+
+        distributed_port_binding = fields.get('distributed_bindings')
         if distributed_port_binding:
-            fields['distributed_binding'] = fields['distributed_binding'][0]
+            # TODO(ihrachys) support multiple bindings
+            fields['distributed_bindings'] = fields['distributed_bindings'][0]
         else:
-            fields['distributed_binding'] = None
+            fields['distributed_bindings'] = []
         return fields
 
     def from_db_object(self, db_obj):
@@ -451,6 +462,7 @@ class Port(base.NeutronDbObject):
 
     def obj_make_compatible(self, primitive, target_version):
         _target_version = versionutils.convert_version_to_tuple(target_version)
+
         if _target_version < (1, 1):
             primitive.pop('data_plane_status', None)
         if _target_version < (1, 2):
@@ -458,6 +470,10 @@ class Port(base.NeutronDbObject):
             for lvl in binding_levels:
                 lvl['versioned_object.version'] = '1.0'
                 lvl['versioned_object.data'].pop('segment_id', None)
+        if _target_version < (1, 3):
+            bindings = primitive.pop('distributed_bindings', [])
+            primitive['distributed_binding'] = (bindings[0]
+                                                if bindings else None)
 
     @classmethod
     def get_ports_by_router(cls, context, router_id, owner, subnet):
