@@ -157,7 +157,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                     "network_availability_zone",
                                     "default-subnetpools",
                                     "subnet-service-types",
-                                    "ip-substring-filtering"]
+                                    "ip-substring-filtering",
+                                    "port-mac-address-regenerate"]
 
     # List of agent types for which all binding_failed ports should try to be
     # rebound when agent revive
