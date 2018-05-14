@@ -32,7 +32,7 @@ class PortSecurityBinding(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port,
         backref=orm.backref("port_security", uselist=False,
-                            cascade='delete', lazy='joined'))
+                            cascade='delete', lazy='subquery'))
 
 
 class NetworkSecurityBinding(model_base.BASEV2):
@@ -47,7 +47,7 @@ class NetworkSecurityBinding(model_base.BASEV2):
     network = orm.relationship(
         models_v2.Network,
         backref=orm.backref("port_security", uselist=False,
-                            cascade='delete', lazy='joined'))
+                            cascade='delete', lazy='subquery'))
 
 
 class PortSecurityDbCommon(object):

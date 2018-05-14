@@ -48,7 +48,7 @@ class RouterRoute(model_base.BASEV2, models_v2.Route):
 
     router = orm.relationship(l3_db.Router,
                               backref=orm.backref("route_list",
-                                                  lazy='joined',
+                                                  lazy='subquery',
                                                   cascade='delete'))
 
 

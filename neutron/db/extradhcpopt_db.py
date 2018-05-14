@@ -48,7 +48,7 @@ class ExtraDhcpOpt(model_base.BASEV2, model_base.HasId):
     # eagerly load extra_dhcp_opts bindings
     ports = orm.relationship(
         models_v2.Port,
-        backref=orm.backref("dhcp_opts", lazy='joined', cascade='delete'))
+        backref=orm.backref("dhcp_opts", lazy='subquery', cascade='delete'))
 
 
 class ExtraDhcpOptMixin(object):

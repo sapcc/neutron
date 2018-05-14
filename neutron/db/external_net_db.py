@@ -51,7 +51,7 @@ class ExternalNetwork(model_base.BASEV2):
     # SQLAlchemy to eagerly load this association
     network = orm.relationship(
         models_v2.Network,
-        backref=orm.backref("external", lazy='joined',
+        backref=orm.backref("external", lazy='subquery',
                             uselist=False, cascade='delete'))
 
 

@@ -79,7 +79,7 @@ class RouterPort(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port,
         backref=orm.backref('routerport', uselist=False, cascade="all,delete"),
-        lazy='joined')
+        lazy='subquery')
 
 
 class Router(model_base.HasStandardAttributes, model_base.BASEV2,
@@ -96,7 +96,7 @@ class Router(model_base.HasStandardAttributes, model_base.BASEV2,
         backref='router',
         lazy='dynamic')
     l3_agents = orm.relationship(
-        'Agent', lazy='joined', viewonly=True,
+        'Agent', lazy='subquery', viewonly=True,
         secondary=l3_agt.RouterL3AgentBinding.__table__)
 
 

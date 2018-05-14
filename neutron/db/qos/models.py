@@ -26,7 +26,7 @@ class QosPolicy(model_base.BASEV2, model_base.HasId, model_base.HasTenant):
     name = sa.Column(sa.String(attrs.NAME_MAX_LEN))
     description = sa.Column(sa.String(attrs.DESCRIPTION_MAX_LEN))
     rbac_entries = sa.orm.relationship(rbac_db_models.QosPolicyRBAC,
-                                       backref='qos_policy', lazy='joined',
+                                       backref='qos_policy', lazy='subquery',
                                        cascade='all, delete, delete-orphan')
 
 
@@ -46,7 +46,7 @@ class QosNetworkPolicyBinding(model_base.BASEV2):
     network = sa.orm.relationship(
         models_v2.Network,
         backref=sa.orm.backref("qos_policy_binding", uselist=False,
-                               cascade='delete', lazy='joined'))
+                               cascade='delete', lazy='subquery'))
 
 
 class QosPortPolicyBinding(model_base.BASEV2):
@@ -65,7 +65,7 @@ class QosPortPolicyBinding(model_base.BASEV2):
     port = sa.orm.relationship(
         models_v2.Port,
         backref=sa.orm.backref("qos_policy_binding", uselist=False,
-                               cascade='delete', lazy='joined'))
+                               cascade='delete', lazy='subquery'))
 
 
 class QosBandwidthLimitRule(model_base.HasId, model_base.BASEV2):

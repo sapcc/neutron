@@ -27,7 +27,7 @@ class Tag(model_base.BASEV2):
     tag = sa.Column(sa.String(60), nullable=False, primary_key=True)
     standard_attr = orm.relationship(
         'StandardAttribute',
-        backref=orm.backref('tags', lazy='joined', viewonly=True))
+        backref=orm.backref('tags', lazy='subquery', viewonly=True))
 
 
 def _get_tag_list(tag_strings):

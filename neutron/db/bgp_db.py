@@ -95,11 +95,11 @@ class BgpSpeaker(model_base.BASEV2,
     peers = orm.relationship(BgpSpeakerPeerBinding,
                              backref='bgp_speaker_peer_bindings',
                              cascade='all, delete, delete-orphan',
-                             lazy='joined')
+                             lazy='subquery')
     networks = orm.relationship(BgpSpeakerNetworkBinding,
                                 backref='bgp_speaker_network_bindings',
                                 cascade='all, delete, delete-orphan',
-                                lazy='joined')
+                                lazy='subquery')
     ip_version = sa.Column(sa.Integer, nullable=False, autoincrement=False)
 
 

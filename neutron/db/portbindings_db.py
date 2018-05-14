@@ -32,7 +32,7 @@ class PortBindingPort(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port,
         backref=orm.backref("portbinding",
-                            lazy='joined', uselist=False,
+                            lazy='subquery', uselist=False,
                             cascade='delete'))
 
 
