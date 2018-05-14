@@ -244,6 +244,9 @@ class DhcpLocalProcess(DhcpBase):
                         self.interface_name)
 
         ns_ip = ip_lib.IPWrapper(namespace=self.network.namespace)
+        if not ns_ip.netns.exists(self.network.namespace):
+            LOG.debug("Namespace already deleted: %s", self.network.namespace)
+            return
         try:
             ns_ip.netns.delete(self.network.namespace)
         except RuntimeError:
@@ -693,8 +696,7 @@ class Dnsmasq(DhcpLocalProcess):
                           (port.mac_address, name, ip_address))
 
         common_utils.replace_file(filename, buf.getvalue())
-        LOG.debug('Done building host file %s with contents:\n%s', filename,
-                  buf.getvalue())
+        LOG.debug('Done building host file %s', filename)
         return filename
 
     def _get_client_id(self, port):
@@ -995,26 +997,27 @@ class Dnsmasq(DhcpLocalProcess):
         providing access to the metadata service via logical routers built
         with 3rd party backends.
         """
-        if conf.force_metadata:
-            # Only ipv4 subnet, with dhcp enabled, will use metadata proxy.
-            return any(s for s in network.subnets
-                       if s.ip_version == 4 and s.enable_dhcp)
+        # Only IPv4 subnets, with dhcp enabled, will use the metadata proxy.
+        v4_dhcp_subnets = [s for s in network.subnets
+                           if s.ip_version == 4 and s.enable_dhcp]
+        if not v4_dhcp_subnets:
+            return False
 
-        if conf.enable_metadata_network and conf.enable_isolated_metadata:
+        if conf.force_metadata:
+            return True
+
+        if not conf.enable_isolated_metadata:
+            return False
+
+        if conf.enable_metadata_network:
             # check if the network has a metadata subnet
             meta_cidr = netaddr.IPNetwork(METADATA_DEFAULT_CIDR)
             if any(netaddr.IPNetwork(s.cidr) in meta_cidr
                    for s in network.subnets):
                 return True
 
-        if not conf.enable_isolated_metadata:
-            return False
-
         isolated_subnets = cls.get_isolated_subnets(network)
-        # Only ipv4 isolated subnet, which has dhcp enabled, will use
-        # metadata proxy.
-        return any(isolated_subnets[s.id] for s in network.subnets
-                   if s.ip_version == 4 and s.enable_dhcp)
+        return any(isolated_subnets[s.id] for s in v4_dhcp_subnets)
 
 
 class DeviceManager(object):
@@ -1269,6 +1272,8 @@ class DeviceManager(object):
                     LOG.exception(_LE('Unable to plug DHCP port for '
                                       'network %s. Releasing port.'),
                                   network.id)
+                    # We should unplug the interface in bridge side.
+                    self.unplug(interface_name, network)
                     self.plugin.release_dhcp_port(network.id, port.device_id)
 
             self.fill_dhcp_udp_checksums(namespace=network.namespace)
