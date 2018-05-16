@@ -69,11 +69,19 @@ class DhcpAgent(manager.Manager):
         self._process_monitor = external_process.ProcessMonitor(
             config=self.conf,
             resource_type='dhcp')
-        self._inital_sync = False
 
     def init_host(self):
+        try:
+            os.remove("/var/lib/neutron/dhcp_sync_finished")
+        except Exception:
+            pass
+
         self.sync_state()
-        self._inital_sync = True
+
+        try:
+            open('/var/lib/neutron/dhcp_sync_finished', 'w+').close()
+        except IOError as err:
+            LOG.warning('could not create ready file: %s', err)
 
     def dhcp_agent_ready(self, context):
         """First sync done?"""
