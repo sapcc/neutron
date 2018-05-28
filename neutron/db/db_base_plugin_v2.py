@@ -1380,12 +1380,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                                                sorts, marker_obj)
         return query
 
-    def _get_dns_name_fast(self, item):
-        if 'dns-integration' in self.supported_extension_aliases and 'dns_name' in item:
-            item['dns_assignment'] = self._get_dns_name_for_port_get(None, item)
-
-        return item
-
     def get_ports(self, context, filters=None, fields=None,
                   sorts=None, limit=None, marker=None,
                   page_reverse=False):
@@ -1395,7 +1389,13 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                                       sorts=sorts, limit=limit,
                                       marker_obj=marker_obj,
                                       page_reverse=page_reverse)
-        items = [self._get_dns_name_fast(self._make_port_dict(c, fields)) for c in query]
+        items = []
+        for c in query:
+            if (('dns-integration' in self.supported_extension_aliases and
+                 'dns_name' in c)):
+                c['dns_assignment'] = self._get_dns_name_for_port_get(context,
+                                                                      c)
+            items.append(self._make_port_dict(c, fields))
         if limit and page_reverse:
             items.reverse()
 
