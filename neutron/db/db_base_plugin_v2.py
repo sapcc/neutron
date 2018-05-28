@@ -25,6 +25,7 @@ from oslo_utils import uuidutils
 from sqlalchemy import and_
 from sqlalchemy import event
 from sqlalchemy import not_
+from sqlalchemy.orm import load_only
 
 from neutron._i18n import _, _LE, _LI
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -1389,10 +1390,14 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                                       sorts=sorts, limit=limit,
                                       marker_obj=marker_obj,
                                       page_reverse=page_reverse)
+        if fields:
+            query = query.options(load_only(*fields))
+
         items = []
         for c in query:
             if (('dns-integration' in self.supported_extension_aliases and
-                 'dns_name' in c)):
+                 'dns_name' in c) and not fields or 'dns_assignment' in fields
+               ):
                 c['dns_assignment'] = self._get_dns_name_for_port_get(context,
                                                                       c)
             items.append(self._make_port_dict(c, fields))
