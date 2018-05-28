@@ -39,5 +39,5 @@ class MetadataRpcCallback(object):
             self._plugin = manager.NeutronManager.get_plugin()
         return self._plugin
 
-    def get_ports(self, context, filters):
-        return self.plugin.get_ports(context, filters=filters)
+    def get_ports(self, context, filters, fields=None):
+        return self.plugin.get_ports(context, filters=filters, fields=fields)

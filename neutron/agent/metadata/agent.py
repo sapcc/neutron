@@ -65,9 +65,9 @@ class MetadataPluginAPI(object):
             version='1.0')
         self.client = n_rpc.get_client(target)
 
-    def get_ports(self, context, filters):
+    def get_ports(self, context, filters, fields=None):
         cctxt = self.client.prepare()
-        return cctxt.call(context, 'get_ports', filters=filters)
+        return cctxt.call(context, 'get_ports', filters=filters, fields=fields)
 
 
 class MetadataProxyHandler(object):
@@ -101,10 +101,10 @@ class MetadataProxyHandler(object):
             return webob.exc.HTTPInternalServerError(explanation=explanation)
 
     def _get_ports_from_server(self, router_id=None, ip_address=None,
-                               networks=None):
+                               networks=None, fields=None):
         """Get ports from server."""
         filters = self._get_port_filters(router_id, ip_address, networks)
-        return self.plugin_rpc.get_ports(self.context, filters)
+        return self.plugin_rpc.get_ports(self.context, filters, fields=fields)
 
     def _get_port_filters(self, router_id=None, ip_address=None,
                           networks=None):
@@ -122,7 +122,8 @@ class MetadataProxyHandler(object):
     @utils.cache_method_results
     def _get_router_networks(self, router_id):
         """Find all networks connected to given router."""
-        internal_ports = self._get_ports_from_server(router_id=router_id)
+        internal_ports = self._get_ports_from_server(router_id=router_id,
+                                                     fields=['network_id'])
         return tuple(p['network_id'] for p in internal_ports)
 
     @utils.cache_method_results
@@ -135,7 +136,8 @@ class MetadataProxyHandler(object):
 
         """
         return self._get_ports_from_server(networks=networks,
-                                           ip_address=remote_address)
+                                           ip_address=remote_address,
+                                           fields=['device_id', 'tenant_id'])
 
     def _get_ports(self, remote_address, network_id=None, router_id=None):
         """Search for all ports that contain passed ip address and belongs to
