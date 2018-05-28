@@ -164,31 +164,27 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
 
     def _make_port_dict(self, port, fields=None,
                         process_extensions=True):
-        _BASE_FIELDS = ['id', 'name', 'network_id', 'tenant_id',
-                         'mac_address', 'admin_state_up', 'status',
-                         'device_id', 'device_owner']
-        res = {k: port[k]
-               for k in _BASE_FIELDS
-               if not fields or k in fields}
-
-        if not fields or 'fixed_ips' in fields:
-            res['fixed_ips'] = [{'subnet_id': ip['subnet_id'],
-                                 'ip_address': ip['ip_address']}
-                                for ip in port['fixed_ips']]
-        if 'dns_name' in port and (not fields or 'dns_name' in fields):
-            res['dns_name'] = port['dns_name']
-        if 'dns_assignment' in port and (not fields or
-                                         'dns_assignment' in fields):
-            res['dns_assignment'] = [{'ip_address': a['ip_address'],
-                                      'hostname': a['hostname'],
-                                      'fqdn': a['fqdn']}
-                                     for a in port['dns_assignment']]
+        res = {"id": port["id"],
+               'name': port['name'],
+               "network_id": port["network_id"],
+               'tenant_id': port['tenant_id'],
+               "mac_address": port["mac_address"],
+               "admin_state_up": port["admin_state_up"],
+               "status": port["status"],
+               "fixed_ips": [{'subnet_id': ip["subnet_id"],
+                              'ip_address': ip["ip_address"]}
+                             for ip in port["fixed_ips"]],
+               "device_id": port["device_id"],
+               "device_owner": port["device_owner"]}
+        if "dns_name" in port:
+            res["dns_name"] = port["dns_name"]
+        if "dns_assignment" in port:
+            res["dns_assignment"] = [{"ip_address": a["ip_address"],
+                                      "hostname": a["hostname"],
+                                      "fqdn": a["fqdn"]}
+                                     for a in port["dns_assignment"]]
         # Call auxiliary extend functions, if any
-        if process_extensions and (
-            not fields or any(field not in _BASE_FIELDS
-                               and field not in ['fixed_ips', 'dns_name',
-                                                 'dns_assignment']
-                               for field in fields)):
+        if process_extensions:
             self._apply_dict_extend_functions(
                 attributes.PORTS, res, port)
         return self._fields(res, fields)
