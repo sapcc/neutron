@@ -67,18 +67,8 @@ class MetadataPluginAPI(object):
 
     def get_ports(self, context, filters, fields=None):
         cctxt = self.client.prepare()
-        retry = 10
-        while retry > 0:
-            try:
-                return cctxt.call(context, 'get_ports', filters=filters, fields=fields)
-            except oslo_messaging.MessagingTimeout as e:
-                LOG.warning(_LW('Metadata agent get_ports() failed'
-                                'Retrying... '
-                                'Detailed message: %(msg)s.') % {'msg': e})
-            retry -= 1
-        else:
-            raise oslo_messaging.MessagingTimeout(
-                'Timed out waiting for a reply of get_ports()')
+        return cctxt.call(context, 'get_ports', filters=filters, fields=fields)
+
 
 class MetadataProxyHandler(object):
 
