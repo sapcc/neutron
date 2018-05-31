@@ -34,7 +34,6 @@ from neutron import service as neutron_service
 
 def register_opts(conf):
     conf.register_opts(l3_config.OPTS)
-    conf.register_opts(metadata_config.DRIVER_OPTS)
     conf.register_opts(metadata_config.SHARED_OPTS)
     conf.register_opts(ha.OPTS)
     config.register_interface_driver_opts_helper(conf)

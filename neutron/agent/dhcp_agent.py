@@ -35,7 +35,6 @@ def register_options(conf):
     conf.register_opts(dhcp_config.DHCP_AGENT_OPTS)
     conf.register_opts(dhcp_config.DHCP_OPTS)
     conf.register_opts(dhcp_config.DNSMASQ_OPTS)
-    conf.register_opts(metadata_config.DRIVER_OPTS)
     conf.register_opts(metadata_config.SHARED_OPTS)
     conf.register_opts(interface.OPTS)
 
