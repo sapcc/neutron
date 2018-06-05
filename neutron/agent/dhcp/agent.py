@@ -72,14 +72,14 @@ class DhcpAgent(manager.Manager):
 
     def init_host(self):
         try:
-            os.remove("/var/lib/neutron/dhcp_sync_finished")
+            os.remove("/var/lib/neutron/neutron-dhcp-agent-ready")
         except Exception:
             pass
 
         self.sync_state()
 
         try:
-            open('/var/lib/neutron/dhcp_sync_finished', 'w+').close()
+            open('/var/lib/neutron/neutron-dhcp-agent-ready', 'w+').close()
         except IOError as err:
             LOG.warning('could not create ready file: %s', err)
 
