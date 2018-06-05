@@ -16,7 +16,6 @@
 import functools
 
 import netaddr
-import time
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
@@ -1383,7 +1382,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
     def get_ports(self, context, filters=None, fields=None,
                   sorts=None, limit=None, marker=None,
                   page_reverse=False):
-        start = time.time()
         marker_obj = self._get_marker_obj(context, 'port', limit, marker)
         query = self._get_ports_query(context, filters=filters,
                                       sorts=sorts, limit=limit,
@@ -1398,8 +1396,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             items.append(self._make_port_dict(c, fields))
         if limit and page_reverse:
             items.reverse()
-
-        LOG.debug('Responding get_ports(%s): %s seconds', str(filters), (time.time() - start))
         return items
 
     def get_ports_count(self, context, filters=None):
