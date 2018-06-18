@@ -1,0 +1,16 @@
+-e git+https://github.com/sapcc/raven-python.git#egg=raven
+-e git+https://github.com/sapcc/openstack-ops-middleware.git#egg=ops-middleware
+-e git+https://github.com/sapcc/openstack-audit-middleware.git#egg=audit-middleware
+-e git+https://github.com/sapcc/networking-manila.git#egg=networking_manila
+-e git+https://github.com/sapcc/neutron-lbaas@stable/queens-m3#egg=neutron-lbaas
+-e git+https://github.com/sapcc/f5-openstack-lbaasv2-driver@queens-m3#egg=f5-openstack-lbaasv2-driver
+-e git+https://github.com/sapcc/networking-f5-ml2.git@stable/queens-m3#egg=networking_f5_ml2
+-e git+https://github.com/sapcc/networking-cisco.git@stable/queens-m3#egg=networking-cisco
+-e git+https://github.com/sapcc/networking-asr.git@stable/queens-m3#egg=networking-asr
+-e git+https://github.com/sapcc/networking-aci.git@stable/queens-m3#egg=networking_aci
+-e git+https://github.com/openstack/networking-arista.git@stable/queens-m3#egg=networking_arista
+-e git+https://github.com/sapcc/ncclient.git@sapcc#egg=ncclient
+
+# -e git+https://github.com/sapcc/networking-dvs.git@stable/mitaka-m3#egg=networking_dvs
+# -e git+https://github.com/sapcc/f5-openstack-agent@mitaka-m3#egg=f5-openstack-agent
+# -e git+https://github.com/sapcc/asr1k-neutron-l3#egg=asr1k-neutron-l3
