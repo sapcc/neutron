@@ -623,6 +623,56 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
         params['page_reverse'] = ['True']
         self.assertEqual(params, urlparse.parse_qs(url.query))
 
+    def test_list_pagination_with_policy(self):
+        def get_input_dict():
+            return {'id': str(_uuid()),
+                    'name': 'net1',
+                    'admin_state_up': True,
+                    'status': "ACTIVE",
+                    'tenant_id': '',
+                    'shared': False,
+                    'subnets': []}
+        input_dict1 = get_input_dict()
+        id1 = input_dict1['id']
+        return_value = [input_dict1, get_input_dict()]
+        instance = self.plugin.return_value
+        instance.get_networks.return_value = return_value
+        params = {'limit': ['2'],
+                  'marker': [str(_uuid())],
+                  'sort_key': ['name'],
+                  'sort_dir': ['asc']}
+
+        with mock.patch.object(policy, 'check') as policy_check:
+            # Policy allows to view only the first network
+            policy_check.side_effect = [True, False] + [True]*100
+            res = self.api.get(_get_path('networks'),
+                               params=params).json
+
+        self.assertEqual(1, len(res['networks']))
+        self.assertEqual(id1, res['networks'][0]['id'])
+
+        self.assertIn('networks_links', res)
+        next_links = []
+        previous_links = []
+        for r in res['networks_links']:
+            if r['rel'] == 'next':
+                next_links.append(r)
+            if r['rel'] == 'previous':
+                previous_links.append(r)
+        self.assertEqual(1, len(next_links))
+        self.assertEqual(1, len(previous_links))
+
+        url = urlparse.urlparse(next_links[0]['href'])
+        self.assertEqual(url.path, _get_path('networks'))
+        params['marker'] = [id1]
+        self.assertEqual(params, urlparse.parse_qs(url.query))
+
+        url = urlparse.urlparse(previous_links[0]['href'])
+        self.assertEqual(url.path, _get_path('networks'))
+        params['marker'] = [id1]
+        params['page_reverse'] = ['True']
+        self.assertEqual(params, urlparse.parse_qs(url.query))
+
     def test_list_pagination_with_last_page(self):
         id = str(_uuid())
         input_dict = {'id': id,

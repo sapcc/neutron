@@ -251,7 +251,7 @@ class L3_NAT_db_mixin(base.BaseTestCase):
         self._test_create_router(ext_gateway_info)
 
     def test_add_router_interface_no_interface_info(self):
-        router_db = l3_models.Router(id='123')
+        router_db = l3_db.Router(id='123')
         with mock.patch.object(l3_db.L3_NAT_dbonly_mixin, '_get_router',
                                return_value=router_db):
             self.assertRaises(

@@ -265,8 +265,7 @@ class Controller(object):
             kwargs[self._parent_id_name] = parent_id
         obj_getter = getattr(self._plugin, self._plugin_handlers[self.LIST])
         obj_list = obj_getter(request.context, **kwargs)
-        obj_list = sorting_helper.sort(obj_list)
-        obj_list = pagination_helper.paginate(obj_list)
+        original_obj_len = len(obj_list)
         # Check authz
         if do_authz:
             # FIXME(salvatore-orlando): obj_getter might return references to
@@ -283,6 +282,13 @@ class Controller(object):
         # fields_to_add contains a list of attributes added for request policy
         # checks but that were not required by the user. They should be
         # therefore stripped
+        if isinstance(pagination_helper,
+                      api_common.PaginationEmulatedHelper) and pagination_helper.limit:
+            new_limit = pagination_helper.limit - (original_obj_len - len(obj_list))
+            pagination_helper.limit = max(0, new_limit)
+        obj_list = sorting_helper.sort(obj_list)
+        obj_list = pagination_helper.paginate(obj_list)
+
         fields_to_strip = fields_to_add or []
         if obj_list:
             fields_to_strip += self._exclude_attributes_by_policy(
