@@ -7,7 +7,7 @@ matrix:
   - python: "2.7"
     env:
     - TOXENV=py27
-    - UPPER_CONSTRAINTS_FILE=https://raw.githubusercontent.com/sapcc/requirements/stable/mitaka-m3/upper-constraints.txt
+    - UPPER_CONSTRAINTS_FILE=https://raw.githubusercontent.com/sapcc/requirements/stable/queens-m3/upper-constraints.txt
 install:
 - pip install tox-travis
 script: tox
