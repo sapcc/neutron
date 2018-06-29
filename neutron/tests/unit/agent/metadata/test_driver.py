@@ -60,7 +60,8 @@ class TestMetadataDriverRules(base.BaseTestCase):
             [rule],
             metadata_driver.MetadataDriver.metadata_mangle_rules('0x1'))
 
-@testtools.skip
+
+@testtools.skip('not using iptables')
 class TestMetadataDriverProcess(base.BaseTestCase):
 
     EUNAME = 'neutron'

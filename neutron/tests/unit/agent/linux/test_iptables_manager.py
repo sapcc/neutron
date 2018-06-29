@@ -145,7 +145,7 @@ class IptablesTestCase(base.BaseTestCase):
             binary_name = iptables_manager.get_binary_name()
             self.assertEqual('python_-m_unitte', binary_name)
 
-@testtools.skip
+@testtools.skip('not using iptables')
 class IptablesCommentsTestCase(base.BaseTestCase):
 
     def setUp(self):
@@ -305,7 +305,8 @@ MANGLE_DUMP = _generate_mangle_dump(IPTABLES_ARG)
 MANGLE_DUMP_V6 = _generate_mangle_dump_v6(IPTABLES_ARG)
 RAW_DUMP = _generate_raw_dump(IPTABLES_ARG)
 
-@testtools.skip
+
+@testtools.skip('not using iptables')
 class IptablesManagerStateFulTestCase(base.BaseTestCase):
 
     def setUp(self):
