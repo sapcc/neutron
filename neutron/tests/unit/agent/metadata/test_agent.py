@@ -126,7 +126,8 @@ class TestMetadataProxyHandlerCache(TestMetadataProxyHandlerBase):
         mock_get_ports.assert_called_once_with(
             mock.ANY,
             {'device_id': [router_id],
-             'device_owner': n_const.ROUTER_INTERFACE_OWNERS})
+             'device_owner': n_const.ROUTER_INTERFACE_OWNERS},
+            fields = ['network_id']),
         self.assertEqual(expected, networks)
 
     def _test_get_router_networks_twice_helper(self):
@@ -141,7 +142,8 @@ class TestMetadataProxyHandlerCache(TestMetadataProxyHandlerBase):
             mock_get_ports.assert_called_once_with(
                 mock.ANY,
                 {'device_id': [router_id],
-                 'device_owner': n_const.ROUTER_INTERFACE_OWNERS})
+                 'device_owner': n_const.ROUTER_INTERFACE_OWNERS},
+                fields = ['network_id'])
             self.assertEqual(expected_networks, networks)
             networks = self.handler._get_router_networks(router_id)
 
@@ -159,7 +161,8 @@ class TestMetadataProxyHandlerCache(TestMetadataProxyHandlerBase):
         mock_get_ports.assert_called_once_with(
             mock.ANY,
             {'network_id': networks,
-             'fixed_ips': {'ip_address': [remote_address]}}
+             'fixed_ips': {'ip_address': [remote_address]},
+             'fields': ['device_id', 'tenant_id']}
         )
         self.assertEqual(1, mock_get_ports.call_count)
         self.handler._get_ports_for_remote_address(remote_address,
@@ -239,7 +242,8 @@ class TestMetadataProxyHandlerCache(TestMetadataProxyHandlerBase):
             mock.call(
                 mock.ANY,
                 {'network_id': networks,
-                 'fixed_ips': {'ip_address': ['192.168.1.1']}}
+                 'fixed_ips': {'ip_address': ['192.168.1.1']},
+                 'fields': ['device_id', 'tenant_id']}
             )
         )
 
@@ -294,7 +298,7 @@ class TestMetadataProxyHandlerCache(TestMetadataProxyHandlerBase):
         ports = [
             [{'device_id': 'device_id',
               'tenant_id': 'tenant_id',
-              'network_id': 'the_id'}]
+              'network_id': 'the_id'},]
         ]
 
         self.assertEqual(

@@ -218,7 +218,8 @@ class L3HATestCase(L3HATestFramework):
             self.admin_ctx, {router['id']: constants.HA_ROUTER_STATE_ACTIVE},
             self.agent2['host'])
         helpers.set_agent_admin_state(self.agent1['id'])
-        self._assert_ha_state_for_agent(router, self.agent1)
+        self._assert_ha_state_for_agent(router, self.agent1,
+                                        state=constants.HA_ROUTER_STATE_ACTIVE)
 
     def test_get_l3_bindings_hosting_router_with_ha_states_one_dead(self):
         router = self._create_router()

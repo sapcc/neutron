@@ -16,6 +16,7 @@
 import os
 
 import mock
+import testtools
 from oslo_config import cfg
 from oslo_utils import uuidutils
 
@@ -59,7 +60,7 @@ class TestMetadataDriverRules(base.BaseTestCase):
             [rule],
             metadata_driver.MetadataDriver.metadata_mangle_rules('0x1'))
 
-
+@testtools.skip
 class TestMetadataDriverProcess(base.BaseTestCase):
 
     EUNAME = 'neutron'

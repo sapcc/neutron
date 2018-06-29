@@ -2056,7 +2056,7 @@ class TestDnsmasq(TestBase):
                                       for alloc in FakeDhcpPort().fixed_ips]
             options, idx_map = dm._generate_opts_per_subnet()
 
-        contains_metadata_ip = any(['%s/32' % dhcp.METADATA_DEFAULT_IP in line
+        contains_metadata_ip = any(['%s/32' % dhcp.METADATA_DEFAULT_NETWORK in line
                                     for line in options])
         self.assertEqual(expected_mdt_ip, contains_metadata_ip)
 
