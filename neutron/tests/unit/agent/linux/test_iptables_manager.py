@@ -145,9 +145,9 @@ class IptablesTestCase(base.BaseTestCase):
             binary_name = iptables_manager.get_binary_name()
             self.assertEqual('python_-m_unitte', binary_name)
 
-@testtools.skip('not using iptables')
 class IptablesCommentsTestCase(base.BaseTestCase):
 
+    @testtools.skip('not using iptables')
     def setUp(self):
         super(IptablesCommentsTestCase, self).setUp()
         cfg.CONF.set_override('comment_iptables_rules', True, 'AGENT')
