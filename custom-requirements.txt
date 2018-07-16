@@ -1,3 +1,5 @@
+dumb-init
+
 -e git+https://github.com/sapcc/raven-python.git#egg=raven
 -e git+https://github.com/sapcc/openstack-ops-middleware.git#egg=ops-middleware
 -e git+https://github.com/sapcc/openstack-audit-middleware.git#egg=audit-middleware
