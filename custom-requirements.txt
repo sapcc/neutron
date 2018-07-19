@@ -1,5 +1,7 @@
 dumb-init
 UcsSdk
+oslo.vmware
+python-memcached
 
 git+https://github.com/sapcc/raven-python.git@ccloud#egg=raven
 git+https://github.com/sapcc/openstack-watcher-middleware.git#egg=watcher-middleware
