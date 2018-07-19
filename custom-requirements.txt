@@ -1,4 +1,5 @@
 dumb-init
+UcsSdk
 
 -e git+https://github.com/sapcc/raven-python.git#egg=raven
 -e git+https://github.com/sapcc/openstack-ops-middleware.git#egg=ops-middleware
