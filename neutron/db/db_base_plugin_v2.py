@@ -33,9 +33,8 @@ from neutron_lib.plugins import directory
 from oslo_config import cfg
 from oslo_db import exception as os_db_exc
 from oslo_log import log as logging
-from oslo_utils import excutils, timeutils
+from oslo_utils import excutils
 from oslo_utils import uuidutils
-from osprofiler import profiler
 from sqlalchemy import and_
 from sqlalchemy import exc as sql_exc
 from sqlalchemy import not_
@@ -1404,9 +1403,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 Port.fixed_ips.any(IPAllocation.subnet_id.in_(subnet_ids)))
         return query
 
-    @timeutils.time_it(LOG)
-    @profiler.trace("get_ports",
-                    hide_args=False)
     @db_api.retry_if_session_inactive()
     def get_ports(self, context, filters=None, fields=None,
                   sorts=None, limit=None, marker=None,
