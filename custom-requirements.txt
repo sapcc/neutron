@@ -23,4 +23,4 @@ git+https://github.com/sapcc/openstack-audit-middleware.git#egg=audit-middleware
 -e git+https://github.com/sapcc/neutron-lbaas@stable/mitaka-m3#egg=neutron-lbaas
 -e git+https://github.com/sapcc/f5-openstack-lbaasv2-driver@mitaka-m3#egg=f5-openstack-lbaasv2-driver
 -e git+https://github.com/sapcc/f5-openstack-agent@mitaka-m3#egg=f5-openstack-agent
--e git+https://github.com/sapcc/asr1k-neutron-l3#egg=asr1k-neutron-l3
+-e git+https://github.com/sapcc/asr1k-neutron-l3@stable/mitaka-m3#egg=asr1k-neutron-l3
