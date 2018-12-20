@@ -53,13 +53,12 @@ defaults
     option dontlognull
     option http-server-close
     option forwardfor
-    option redispatch
     retries                 3
-    timeout http-request    10s
-    timeout connect         10s
-    timeout client          12s
-    timeout server          12s
-    timeout http-keep-alive 10s
+    timeout http-request    30s
+    timeout connect         30s
+    timeout client          32s
+    timeout server          32s
+    timeout http-keep-alive 30s
 
 listen listener
     bind 0.0.0.0:%(port)s
