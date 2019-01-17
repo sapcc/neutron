@@ -28,3 +28,6 @@ postgresql-server [platform:rpm test]
 libssl-dev [platform:dpkg]
 openssl-devel [platform:rpm !platform:suse]
 libopenssl-devel [platform:suse !platform:rpm]
+
+# for twisted / nsx-t
+python-dev [platform:dpkg]
