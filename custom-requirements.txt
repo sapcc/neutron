@@ -8,6 +8,13 @@ jaeger-client
 raven
 watcher-middleware
 audit-middleware
+
+# for NSX-T
+vapi_common
+vapi_runtime
+vapi_common_client
+nsx_python_sdk
+
 #git+https://github.com/sapcc/openstack-watcher-middleware.git#egg=watcher-middleware
 #git+https://github.com/sapcc/openstack-audit-middleware.git#egg=audit-middleware
 -e git+https://github.com/sapcc/neutron-lbaas@stable/queens-m3#egg=neutron-lbaas
