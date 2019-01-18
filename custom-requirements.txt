@@ -4,7 +4,6 @@ oslo.vmware
 python-memcached
 pymemcache
 redis
-jaeger-client
 raven
 watcher-middleware
 audit-middleware
@@ -27,7 +26,7 @@ nsx_python_sdk
 -e git+https://github.com/openstack/networking-arista.git@stable/queens#egg=networking_arista
 -e git+https://github.com/sapcc/ncclient.git@sapcc#egg=ncclient
 -e git+https://github.com/sapcc/networking-dvs.git#egg=networking_dvs
--e git+https://github.com/sapcc/osprofiler.git@stable/queens-m3#egg=osprofiler
+#-e git+https://github.com/sapcc/osprofiler.git@stable/queens-m3#egg=osprofiler
 -e git+https://github.com/sapcc/asr1k-neutron-l3@dev/queens-m3#egg=asr1k-neutron-l3
 -e git+https://github.com/sapcc/networking-nsx-t.git@development/queens#egg=networking_nsxv3
 # -e git+https://github.com/sapcc/f5-openstack-agent@mitaka-m3#egg=f5-openstack-agent
