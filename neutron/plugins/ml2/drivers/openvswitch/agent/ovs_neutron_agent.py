@@ -1780,6 +1780,10 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                       {'polling_interval': self.polling_interval,
                        'elapsed': elapsed})
         self.iter_num = self.iter_num + 1
+        try:
+            open('/var/lib/neutron/neutron-openvswitch-agent-ready', 'w+').close()
+        except IOError as err:
+            LOG.warning('could not create ready file: %s', err)
 
     def get_port_stats(self, port_info, ancillary_port_info):
         port_stats = {
