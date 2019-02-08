@@ -23,7 +23,7 @@ nsx_python_sdk
 -e git+https://github.com/sapcc/networking-cisco.git@stable/queens-m3#egg=networking-cisco
 -e git+https://github.com/sapcc/networking-asr.git@stable/queens-m3#egg=networking-asr
 -e git+https://github.com/sapcc/networking-aci.git@stable/queens-m3#egg=networking_aci
-# -e git+https://github.com/openstack/networking-arista.git@stable/queens#egg=networking_arista
+-e git+https://github.com/openstack/networking-arista.git@stable/queens#egg=networking_arista
 -e git+https://github.com/sapcc/ncclient.git@sapcc#egg=ncclient
 -e git+https://github.com/sapcc/networking-dvs.git#egg=networking_dvs
 #-e git+https://github.com/sapcc/osprofiler.git@stable/queens-m3#egg=osprofiler
