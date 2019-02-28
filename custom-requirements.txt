@@ -5,6 +5,7 @@ python-memcached
 pymemcache
 redis
 raven
+networking-baremetal
 
 # for NSX-T
 vapi_common
