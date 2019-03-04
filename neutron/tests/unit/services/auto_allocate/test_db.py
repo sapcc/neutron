@@ -12,6 +12,7 @@
 # limitations under the License.
 
 from unittest import mock
+from unittest import skip
 
 from neutron_lib.api.definitions import constants as api_const
 from neutron_lib.callbacks import events
@@ -336,6 +337,7 @@ class AutoAllocateTestCase(testlib_api.SqlTestCase):
         self.assertRaises(exceptions.AutoAllocationFailure,
             self.mixin._check_requirements, self.ctx, 'foo_tenant')
 
+    @skip("Pools checks disabled in CCloud for flavored auto-allocate")
     def test__check_requirements_fail_on_missing_pools(self):
         with mock.patch.object(
             self.mixin, '_get_default_external_network'),\
@@ -353,8 +355,7 @@ class AutoAllocateTestCase(testlib_api.SqlTestCase):
             result = self.mixin._check_requirements(self.ctx, 'foo_tenant')
             expected = {
                 'id': 'dry-run=pass',
-                'tenant_id': 'foo_tenant',
-                'project_id': 'foo_tenant'}
+                'tenant_id': 'foo_tenant'}
             self.assertEqual(expected, result)
 
     def test__cleanup_handles_failures(self):
