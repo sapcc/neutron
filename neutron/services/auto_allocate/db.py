@@ -193,13 +193,10 @@ class AutoAllocatedTopologyMixin:
             raise e.error
 
     def _check_requirements(self, context, project_id):
-        """Raise if requirements are not met."""
+        """Raise if requirements are not met.
+           CCloud: don't check for subnetpools
+        """
         self._get_default_external_network(context)
-        try:
-            self._get_supported_subnetpools(context)
-        except n_exc.NotFound:
-            raise exceptions.AutoAllocationFailure(
-                reason=_("No default subnetpools defined"))
         return {'id': 'dry-run=pass',
                 'tenant_id': project_id,
                 'project_id': project_id}
