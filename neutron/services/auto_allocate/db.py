@@ -180,7 +180,9 @@ class AutoAllocatedTopologyMixin(common_db_mixin.CommonDbMixin):
 
     def _check_requirements(self, context, tenant_id):
         """Raise if requirements are not met.
-           CCloud: don't check for subnetpools"""
+
+        CCloud: don't check for subnetpools
+        """
         self._get_default_external_network(context)
         return {'id': 'dry-run=pass', 'tenant_id': tenant_id}
 
@@ -219,8 +221,10 @@ class AutoAllocatedTopologyMixin(common_db_mixin.CommonDbMixin):
 
     def _get_default_external_network(self, context):
         """Get the default external network for the deployment.
-           CCloud specific: the default external network depends
-           on current domain scope"""
+
+        CCloud specific: the default external network depends
+        on current domain scope
+        """
 
         external_networks = net_obj.ExternalNetwork.get_objects(
             context)
@@ -234,10 +238,10 @@ class AutoAllocatedTopologyMixin(common_db_mixin.CommonDbMixin):
             default_external_networks = [net for net in external_networks
                                          if net.get('is_default')]
             if not default_external_networks:
-                LOG.warn("Multiple external networks for project %s"
-                         " found, choosing (default) network %s",
-                         context.tenant_name,
-                         external_networks[0].network_id)
+                LOG.warning("Multiple external networks for project %s"
+                            " found, choosing (default) network %s",
+                            context.tenant_name,
+                            external_networks[0].network_id)
                 default_external_networks = external_networks
         return default_external_networks[0].network_id
 
@@ -258,8 +262,10 @@ class AutoAllocatedTopologyMixin(common_db_mixin.CommonDbMixin):
 
     def _provision_tenant_private_network(self, context, tenant_id):
         """Create a tenant private network/subnets.
-           CCloud specific: use specific cidr range instead
-           of default subnetpool"""
+
+        CCloud specific: use specific cidr range instead
+        of default subnetpool
+        """
 
         network = None
         try:

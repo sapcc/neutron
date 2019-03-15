@@ -196,6 +196,7 @@ class AutoAllocateTestCase(testlib_api.SqlTestCase):
         self.assertRaises(exceptions.AutoAllocationFailure,
             self.mixin._check_requirements, self.ctx, 'foo_tenant')
 
+    @testtools.skip("ccloud: doesn't need  defaul pools anymore")
     def test__check_requirements_fail_on_missing_pools(self):
         with mock.patch.object(
             self.mixin, '_get_default_external_network'),\
