@@ -243,16 +243,20 @@ class AutoAllocatedTopologyMixin(common_db_mixin.CommonDbMixin):
             context)
 
         if not external_networks:
-            LOG.error("Unable to find any external network "
-                      "for project, please run the project wizard"
-                      "in the dashboard first.")
             raise exceptions.AutoAllocationFailure(
-                reason=_("No default router:external network"))
+                reason=_("Unable to find any external network "
+                         "for project, please run the project wizard"
+                         "in the dashboard first"))
         if len(external_networks) > 1:
-            LOG.warn("Multiple external networks for project %s"
-                     " found, choosing network %s", context.tenant_name,
-                     external_networks[0].network_id)
-        return external_networks[0].network_id
+            default_external_networks = [net for net in external_networks
+                                         if net.get('is_default')]
+            if not default_external_networks:
+                LOG.warn("Multiple external networks for project %s"
+                         " found, choosing (default) network %s",
+                         context.tenant_name,
+                         external_networks[0].network_id)
+                default_external_networks = external_networks
+        return default_external_networks[0].network_id
 
     def _get_supported_subnetpools(self, context):
         """Return the default subnet pools available."""
