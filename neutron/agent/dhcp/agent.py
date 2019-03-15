@@ -113,7 +113,7 @@ class DhcpAgent(manager.Manager):
 
     def dhcp_agent_ready(self, context):
         """First sync done?"""
-        LOG.debug("Got Ready request, replying with %s" % self._inital_sync)
+        LOG.debug('Got Ready request, replying with %s', self._inital_sync)
         return self._inital_sync
 
     def _populate_networks_cache(self):

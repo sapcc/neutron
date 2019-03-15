@@ -569,7 +569,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 raise exc.InvalidInput(error_message=error_message)
             elif net.network == netaddr.IPAddress('0.0.0.0'):
                 error_message = _("%s Subnet is not supported "
-                                  "if enable_dhcp is True." % net.network)
+                                  "if enable_dhcp is True.", net.network)
                 raise exc.InvalidInput(error_message=error_message)
             elif net.is_loopback():
                 error_message = _("Loopback IP subnet is not supported "
