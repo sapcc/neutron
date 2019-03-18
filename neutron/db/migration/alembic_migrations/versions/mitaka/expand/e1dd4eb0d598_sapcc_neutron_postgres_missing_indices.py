@@ -29,35 +29,24 @@ down_revision = '0e66c5227a8a'
 
 
 def upgrade():
-    op.create_index(
-        'ipallocations_port_id_idx',
-        'ipallocations',
-        ['port_id'],
-        unique=False)
-    op.create_index(
-        'ports_device_id_idx',
-        'ports',
-        ['device_id'],
-        unique=False)
-    op.create_index(
-        'ports_network_id_idx',
-        'ports',
-        ['network_id'],
-        unique=False)
-    op.create_index('securitygrouprules_security_group_id_idx', 'securitygrouprules', ['security_group_id'],
+    op.create_index('ipallocations_port_id_idx',
+                    'ipallocations', ['port_id'],
                     unique=False)
-    op.create_index(
-        'subnets_network_id_idx',
-        'subnets',
-        ['network_id'],
-        unique=False)
-    op.create_index(
-        'ml2_network_segments_network_id_idx',
-        'ml2_network_segments',
-        ['network_id'],
-        unique=False)
-    op.create_index(
-        'ipallocationpools_subnet_id_idx',
-        'ipallocationpools',
-        ['subnet_id'],
-        unique=False)
+    op.create_index('ports_device_id_idx',
+                    'ports', ['device_id'],
+                    unique=False)
+    op.create_index('ports_network_id_idx',
+                    'ports', ['network_id'],
+                    unique=False)
+    op.create_index('securitygrouprules_security_group_id_idx',
+                    'securitygrouprules', ['security_group_id'],
+                    unique=False)
+    op.create_index('subnets_network_id_idx',
+                    'subnets', ['network_id'],
+                    unique=False)
+    op.create_index('ml2_network_segments_network_id_idx',
+                    'ml2_network_segments', ['network_id'],
+                    unique=False)
+    op.create_index('ipallocationpools_subnet_id_idx',
+                    'ipallocationpools', ['subnet_id'],
+                    unique=False)

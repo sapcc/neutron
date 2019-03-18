@@ -1601,7 +1601,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     bound_mech_contexts.append(mech_context)
             else:
                 """SAPCC: Workaround for f5 lbaasv2 bug
-                
+
                 sometime creates ports
                 without portbinding levels
                 """
