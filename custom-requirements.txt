@@ -14,6 +14,7 @@ nsx_python_sdk
 
 git+https://github.com/sapcc/openstack-watcher-middleware.git#egg=watcher-middleware
 git+https://github.com/sapcc/openstack-audit-middleware.git#egg=audit-middleware
+-e git+https://github.com/sapcc/ncclient.git@sapcc#egg=ncclient
 -e git+https://github.com/sapcc/neutron-lbaas@stable/queens-m3#egg=neutron-lbaas
 -e git+https://github.com/sapcc/f5-openstack-lbaasv2-driver@queens-m3#egg=f5-openstack-lbaasv2-driver
 -e git+https://github.com/sapcc/networking-manila.git@stable/queens-m3#egg=networking_manila
