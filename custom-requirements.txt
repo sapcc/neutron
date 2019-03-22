@@ -27,6 +27,6 @@ git+https://github.com/sapcc/ncclient.git@v0.5.3#egg=ncclient
 -e git+https://github.com/sapcc/asr1k-neutron-l3@dev/queens-m3#egg=asr1k-neutron-l3
 -e git+https://github.com/sapcc/networking-nsx-t.git@development/queens#egg=networking_nsxv3
 -e git+https://github.com/sapcc/python-agentliveness.git#egg=agentliveness
--e git+https://github.com/sapcc/networking-cisco.git@dev/queens-m3#egg=networking-cisco
+-e git+https://github.com/sapcc/networking-ucsm-bm.git@stable/queens-m3#egg=networking-ucsm-bm
 # -e git+https://github.com/sapcc/f5-openstack-agent@mitaka-m3#egg=f5-openstack-agent
 -e git+https://github.com/openstack/networking-bgpvpn@stable/queens#egg=networking-bgpvpn
