@@ -1173,6 +1173,21 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             self._test_list_resources('port', [port1],
                                       query_params=query_params)
 
+    def test_list_ports_filtered_by_fixed_ip_with_limit(self):
+        # for this test we need to enable overlapping ips
+        cfg.CONF.set_default('allow_overlapping_ips', True)
+        with self.port() as port1, self.port():
+            fixed_ips = port1['port']['fixed_ips'][0]
+            query_params = ("fixed_ips=ip_address%%3D%s&"
+                           "fixed_ips=ip_address%%3D%s&"
+                           "fixed_ips=subnet_id%%3D%s&"
+                           "limit=500"
+                           "" % (fixed_ips['ip_address'],
+                                 '192.168.126.5',
+                                 fixed_ips['subnet_id']))
+            self._test_list_resources('port', [port1],
+                                      query_params=query_params)
+
     def test_list_ports_public_network(self):
         with self.network(shared=True) as network:
             with self.subnet(network) as subnet:
