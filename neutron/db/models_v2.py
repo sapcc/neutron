@@ -163,7 +163,7 @@ class Subnet(standard_attr.HasStandardAttributes, model_base.BASEV2,
     # subnetpool_id in subnet might be 'prefix_delegation' when the IPv6 Prefix
     # Delegation is enabled
     subnetpool = orm.relationship(
-        'SubnetPool', lazy='joined',
+        'SubnetPool', lazy='subquery',
         foreign_keys='Subnet.subnetpool_id',
         primaryjoin='Subnet.subnetpool_id==SubnetPool.id')
     ip_version = sa.Column(sa.Integer, nullable=False)

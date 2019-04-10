@@ -125,7 +125,7 @@ class HasStandardAttributes(object):
     @declarative.declared_attr
     def standard_attr(cls):
         return sa.orm.relationship(StandardAttribute,
-                                   lazy='joined',
+                                   lazy='subquery',
                                    cascade='all, delete-orphan',
                                    single_parent=True,
                                    uselist=False)

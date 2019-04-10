@@ -43,6 +43,6 @@ class RouterExtraAttributes(model_base.BASEV2):
 
     router = orm.relationship(
         'Router', load_on_pending=True,
-        backref=orm.backref("extra_attributes", lazy='joined',
+        backref=orm.backref("extra_attributes", lazy='subquery',
                             uselist=False, cascade='delete'))
     revises_on_change = ('router', )

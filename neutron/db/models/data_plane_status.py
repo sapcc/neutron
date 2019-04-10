@@ -29,6 +29,6 @@ class PortDataPlaneStatus(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port, load_on_pending=True,
         backref=orm.backref("data_plane_status",
-                            lazy='joined', uselist=False,
+                            lazy='subquery', uselist=False,
                             cascade='delete'))
     revises_on_change = ('port', )

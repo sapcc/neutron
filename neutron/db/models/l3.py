@@ -41,7 +41,7 @@ class RouterPort(model_base.BASEV2):
     port = orm.relationship(
         models_v2.Port,
         backref=orm.backref('routerport', uselist=False, cascade="all,delete"),
-        lazy='joined')
+        lazy='subquery')
 
 
 class Router(standard_attr.HasStandardAttributes, model_base.BASEV2,
@@ -52,7 +52,7 @@ class Router(standard_attr.HasStandardAttributes, model_base.BASEV2,
     status = sa.Column(sa.String(16))
     admin_state_up = sa.Column(sa.Boolean)
     gw_port_id = sa.Column(sa.String(36), sa.ForeignKey('ports.id'))
-    gw_port = orm.relationship(models_v2.Port, lazy='joined')
+    gw_port = orm.relationship(models_v2.Port, lazy='subquery')
     flavor_id = sa.Column(sa.String(36),
                           sa.ForeignKey("flavors.id"), nullable=True)
     attached_ports = orm.relationship(
