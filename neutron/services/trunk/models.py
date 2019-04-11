@@ -39,7 +39,7 @@ class Trunk(standard_attr.HasStandardAttributes, model_base.BASEV2,
 
     port = sa.orm.relationship(
         models_v2.Port,
-        backref=sa.orm.backref('trunk_port', lazy='subquery', uselist=False,
+        backref=sa.orm.backref('trunk_port', lazy='joined', uselist=False,
                                cascade='delete'))
 
     sub_ports = sa.orm.relationship(
@@ -57,7 +57,7 @@ class SubPort(model_base.BASEV2):
                         primary_key=True)
     port = sa.orm.relationship(
         models_v2.Port,
-        backref=sa.orm.backref('sub_port', lazy='subquery', uselist=False,
+        backref=sa.orm.backref('sub_port', lazy='joined', uselist=False,
                                cascade='delete'))
 
     trunk_id = sa.Column(sa.String(36),

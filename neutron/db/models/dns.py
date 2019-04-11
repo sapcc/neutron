@@ -32,7 +32,7 @@ class NetworkDNSDomain(model_base.BASEV2):
     network = orm.relationship(models_v2.Network,
                                load_on_pending=True,
                                backref=orm.backref("dns_domain",
-                                                   lazy='subquery',
+                                                   lazy='joined',
                                                    uselist=False,
                                                    cascade='delete'))
     revises_on_change = ('network', )
@@ -61,7 +61,7 @@ class FloatingIPDNS(model_base.BASEV2):
     floatingip = orm.relationship(l3_models.FloatingIP,
                                   load_on_pending=True,
                                   backref=orm.backref("dns",
-                                                      lazy='subquery',
+                                                      lazy='joined',
                                                       uselist=False,
                                                       cascade='delete'))
     revises_on_change = ('floatingip', )
@@ -93,7 +93,7 @@ class PortDNS(model_base.BASEV2):
     port = orm.relationship(models_v2.Port,
                             load_on_pending=True,
                             backref=orm.backref("dns",
-                                                lazy='subquery',
+                                                lazy='joined',
                                                 uselist=False,
                                                 cascade='delete'))
     revises_on_change = ('port', )

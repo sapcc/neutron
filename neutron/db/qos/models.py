@@ -53,7 +53,7 @@ class QosNetworkPolicyBinding(model_base.BASEV2):
     network = sa.orm.relationship(
         models_v2.Network, load_on_pending=True,
         backref=sa.orm.backref("qos_policy_binding", uselist=False,
-                               cascade='delete', lazy='subquery'))
+                               cascade='delete', lazy='joined'))
 
 
 class QosFIPPolicyBinding(model_base.BASEV2):
@@ -73,7 +73,7 @@ class QosFIPPolicyBinding(model_base.BASEV2):
     floatingip = sa.orm.relationship(
         l3.FloatingIP, load_on_pending=True,
         backref=sa.orm.backref("qos_policy_binding", uselist=False,
-                               cascade='delete', lazy='subquery'))
+                               cascade='delete', lazy='joined'))
 
 
 class QosPortPolicyBinding(model_base.BASEV2):
@@ -93,7 +93,7 @@ class QosPortPolicyBinding(model_base.BASEV2):
     port = sa.orm.relationship(
         models_v2.Port, load_on_pending=True,
         backref=sa.orm.backref("qos_policy_binding", uselist=False,
-                               cascade='delete', lazy='subquery'))
+                               cascade='delete', lazy='joined'))
 
 
 class QosPolicyDefault(model_base.BASEV2,

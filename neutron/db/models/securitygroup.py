@@ -40,7 +40,7 @@ class DefaultSecurityGroup(model_base.BASEV2, model_base.HasProjectPrimaryKey):
                                                 ondelete="CASCADE"),
                                   nullable=False)
     security_group = orm.relationship(
-        SecurityGroup, lazy='subquery',
+        SecurityGroup, lazy='joined',
         backref=orm.backref('default_security_group', cascade='all,delete'),
         primaryjoin="SecurityGroup.id==DefaultSecurityGroup.security_group_id",
     )
@@ -62,7 +62,7 @@ class SecurityGroupPortBinding(model_base.BASEV2):
     ports = orm.relationship(
         models_v2.Port, load_on_pending=True,
         backref=orm.backref("security_groups",
-                            lazy='subquery', cascade='delete'))
+                            lazy='joined', cascade='delete'))
 
 
 class SecurityGroupRule(standard_attr.HasStandardAttributes, model_base.BASEV2,
