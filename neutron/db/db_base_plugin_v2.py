@@ -1396,12 +1396,14 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         ip_addresses = fixed_ips.get('ip_address')
         subnet_ids = fixed_ips.get('subnet_id')
         query._enable_assertions = False
-        if ip_addresses:
-            query = query.filter(
-                Port.fixed_ips.any(IPAllocation.ip_address.in_(ip_addresses)))
-        if subnet_ids:
-            query = query.filter(
-                Port.fixed_ips.any(IPAllocation.subnet_id.in_(subnet_ids)))
+        if ip_addresses or subnet_ids:
+            query = query.join(Port.fixed_ips)
+            if ip_addresses:
+                query = query.filter(
+                    Port.fixed_ips.any(IPAllocation.ip_address.in_(ip_addresses)))
+            if subnet_ids:
+                query = query.filter(
+                    Port.fixed_ips.any(IPAllocation.subnet_id.in_(subnet_ids)))
         query._enable_assertions = True
         return query
 
