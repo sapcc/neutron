@@ -1585,7 +1585,7 @@ class DeviceManager(object):
 
     def fill_dhcp_udp_checksums(self, namespace):
         """Ensure DHCP reply packets always have correct UDP checksums."""
-        iptables_mgr = iptables_manager.IptablesManager(use_ipv6=True,
+        iptables_mgr = iptables_manager.IptablesManager(use_ipv6=False,
                                                         namespace=namespace)
         ipv4_rule = ('-p udp -m udp --dport %d -j CHECKSUM --checksum-fill'
                      % constants.DHCP_RESPONSE_PORT)
