@@ -58,7 +58,11 @@ DHCP_AGENT_OPTS = [
     cfg.IntOpt('num_sync_threads', default=4,
                help=_('Number of threads to use during sync process. '
                       'Should not exceed connection pool size configured on '
-                      'server.'))
+                      'server.')),
+    cfg.IntOpt('ports_ready_per_iteration', default=64,
+               help=_('Maximum number of ports ready per RPC message. '
+                      'This is the maximum of how many ports are sent to '
+                      'neutron-server in one dhcp_ready_on_ports() call.')),
 ]
 
 DHCP_OPTS = [

@@ -232,12 +232,19 @@ class DhcpAgent(manager.Manager):
 
     def _dhcp_ready_ports_loop(self):
         """Notifies the server of any ports that had reservations setup."""
+        max_ports_ready = self.conf.ports_ready_per_iteration
         while True:
             # this is just watching a set so we can do it really frequently
             eventlet.sleep(0.1)
             if self.dhcp_ready_ports:
-                ports_to_send = self.dhcp_ready_ports
-                self.dhcp_ready_ports = set()
+                if len(self.dhcp_ready_ports) > max_ports_ready:
+                    ports_to_send = set()
+                    for port_count in range(max_ports_ready):
+                        ports_to_send.add(self.dhcp_ready_ports.pop())
+                else:
+                    ports_to_send = self.dhcp_ready_ports
+                    self.dhcp_ready_ports = set()
+
                 try:
                     self.plugin_rpc.dhcp_ready_on_ports(ports_to_send)
                     continue
