@@ -1399,11 +1399,9 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         if ip_addresses or subnet_ids:
             query = query.join(Port.fixed_ips)
             if ip_addresses:
-                query = query.filter(
-                    Port.fixed_ips.any(IPAllocation.ip_address.in_(ip_addresses)))
+                query = query.filter(IPAllocation.ip_address.in_(ip_addresses))
             if subnet_ids:
-                query = query.filter(
-                    Port.fixed_ips.any(IPAllocation.subnet_id.in_(subnet_ids)))
+                query = query.filter(IPAllocation.subnet_id.in_(subnet_ids))
         query._enable_assertions = True
         return query
 
