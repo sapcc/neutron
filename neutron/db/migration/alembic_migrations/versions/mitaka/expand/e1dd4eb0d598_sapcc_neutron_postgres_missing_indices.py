@@ -50,3 +50,6 @@ def upgrade():
     op.create_index('ipallocationpools_subnet_id_idx',
                     'ipallocationpools', ['subnet_id'],
                     unique=False)
+    op.create_index('standardattributes_id_uindex',
+                    'standardattributes', ['id'],
+                    unique=True)
