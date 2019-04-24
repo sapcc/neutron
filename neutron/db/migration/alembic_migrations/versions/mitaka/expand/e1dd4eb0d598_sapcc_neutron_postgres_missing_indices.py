@@ -53,3 +53,19 @@ def upgrade():
     op.create_index('standardattributes_id_uindex',
                     'standardattributes', ['id'],
                     unique=True)
+    op.create_index('ix_networkrbacs_object_id',
+                    'networkrbacs', ['object_id'],
+                    unique=False)
+    op.create_index('ix_networkrbacs_target_tenant',
+                    'networkrbacs', ['target_tenant'],
+                    unique=False)
+    op.create_index('ml2_port_bindings_port_id_idx',
+                    'ml2_port_bindings', ['port_id'],
+                    unique=False)
+    op.create_index('securitygroupportbindings_port_id_index',
+                    'securitygroupportbindings', ['port_id'],
+                    unique=False)
+    op.create_index('securitygroupportbindings_security_group_id_index',
+                    'securitygroupportbindings', ['security_group_id'],
+                    unique=False)
+
