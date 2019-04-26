@@ -202,7 +202,7 @@ class DhcpAgent(manager.Manager):
             active_networks = []
             while True:
                 if active_networks:
-                    marker = active_networks[-1]['id']
+                    marker = active_networks[-1].id
                 else:
                     marker = None
                 network_slice = self.plugin_rpc.get_active_networks_info(
@@ -210,7 +210,7 @@ class DhcpAgent(manager.Manager):
                     marker=marker)
                 if not network_slice:
                     break
-                active_networks.append(network_slice)
+                active_networks.extend(network_slice)
 
             LOG.info('All active networks have been fetched through RPC.')
             active_network_ids = set(network.id for network in active_networks)
