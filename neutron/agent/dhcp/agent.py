@@ -201,9 +201,13 @@ class DhcpAgent(manager.Manager):
         try:
             active_networks = []
             while True:
+                if active_networks:
+                    marker = active_networks[-1]['id']
+                else:
+                    marker = None
                 network_slice = self.plugin_rpc.get_active_networks_info(
                     enable_dhcp_filter=False, limit=50,
-                    marker=active_networks[-1]['id'] if networks else None)
+                    marker=marker)
                 if not network_slice:
                     break
                 active_networks.append(network_slice)
