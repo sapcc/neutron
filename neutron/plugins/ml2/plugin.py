@@ -1936,8 +1936,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         query = super(Ml2Plugin, self)._get_ports_query(context, filters,
                                                         *args, **kwargs)
         if ip_addresses_s:
-            substr_filter = or_(*[models_v2.Port.fixed_ips.any(
-                models_v2.IPAllocation.ip_address.like('%%%s%%' % ip))
+            query = query.join(models_v2.Port.fixed_ips)
+            substr_filter = or_(*[
+                models_v2.IPAllocation.ip_address.like('%%%s%%' % ip)
                 for ip in ip_addresses_s])
             query = query.filter(substr_filter)
         if limit:
