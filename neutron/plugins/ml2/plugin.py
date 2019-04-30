@@ -1929,6 +1929,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         return device
 
     def _get_ports_query(self, context, filters=None, *args, **kwargs):
+        limit = kwargs.pop('limit', None)
         filters = filters or {}
         fixed_ips = filters.get('fixed_ips', {})
         ip_addresses_s = fixed_ips.get('ip_address_substr')
@@ -1939,6 +1940,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 models_v2.IPAllocation.ip_address.like('%%%s%%' % ip))
                 for ip in ip_addresses_s])
             query = query.filter(substr_filter)
+        if limit:
+            query = query.limit(limit)
         return query
 
     def filter_hosts_with_network_access(
