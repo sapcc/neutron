@@ -206,15 +206,9 @@ class PortBindingLevelIfaceObjTestCase(
 
 
 class PortBindingLevelDbObjectTestCase(
-        obj_test_base.BaseDbObjectTestCase, testlib_api.SqlTestCase):
+        obj_test_base.BaseDbObjectTestCase):
 
     _test_class = ports.PortBindingLevel
-
-    def setUp(self):
-        super(PortBindingLevelDbObjectTestCase, self).setUp()
-        self.update_obj_fields(
-            {'port_id': lambda: self._create_test_port_id(),
-             'segment_id': lambda: self._create_test_segment_id()})
 
 
 class PortIfaceObjTestCase(obj_test_base.BaseObjectIfaceTestCase):
@@ -365,35 +359,3 @@ class PortDbObjectTestCase(obj_test_base.BaseDbObjectTestCase,
         port_v1_0 = port_new.obj_to_primitive(target_version='1.0')
         self.assertNotIn('data_plane_status',
                          port_v1_0['versioned_object.data'])
-
-    def test_v1_2_to_v1_1_drops_segment_id_in_binding_levels(self):
-        port_new = self._create_test_port()
-        segment = network.NetworkSegment(
-            self.context,
-            # TODO(ihrachys) we should be able to create a segment object
-            # without explicitly specifying id, but it's currently not working
-            id=uuidutils.generate_uuid(),
-            network_id=port_new.network_id,
-            network_type='vxlan')
-        segment.create()
-
-        # TODO(ihrachys) we should be able to create / update level objects via
-        # Port object, but it's currently not working
-        binding = ports.PortBindingLevel(
-            self.context, port_id=port_new.id,
-            host='host1', level=0, segment_id=segment.id)
-        binding.create()
-
-        port_new = ports.Port.get_object(self.context, id=port_new.id)
-        port_v1_1 = port_new.obj_to_primitive(target_version='1.1')
-
-        lvl = port_v1_1['versioned_object.data']['binding_levels'][0]
-        self.assertNotIn('segment_id', lvl['versioned_object.data'])
-
-        # check that we also downgraded level object version
-        self.assertEqual('1.0', lvl['versioned_object.version'])
-
-        # finally, prove that binding primitive is now identical to direct
-        # downgrade of the binding object
-        binding_v1_0 = binding.obj_to_primitive(target_version='1.0')
-        self.assertEqual(binding_v1_0, lvl)
