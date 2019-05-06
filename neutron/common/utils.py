@@ -44,7 +44,15 @@ import six
 
 import neutron
 from neutron._i18n import _
+from neutron.conf import common as common_config
 from neutron.db import api as db_api
+
+try:
+    # This isn't available on all platforms (e.g. Windows).
+    import resource
+except ImportError:
+    resource = None
+
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG = logging.getLogger(__name__)
@@ -111,6 +119,30 @@ def _subprocess_setup():
 
 def subprocess_popen(args, stdin=None, stdout=None, stderr=None, shell=False,
                      env=None, preexec_fn=_subprocess_setup, close_fds=True):
+
+    # Set sensible FD limits - this is an adaption from oslo.rootwrap
+    # See https://github.com/openstack/oslo.rootwrap/commit/c0a86998203315858721a7b2c8ab75fbf5cd51d9
+    if not getattr(subprocess_popen, '_ccloud_fd_patch', False) and resource:
+        # When use close_fds=True on Python 2.x, we spend significant time
+        # in closing fds up to current soft ulimit, which could be large.
+        # Lower our ulimit to a reasonable value to regain performance.
+        fd_limits = resource.getrlimit(resource.RLIMIT_NOFILE)
+        # sensible_fd_limit = min(common_config.rlimit_nofile, fd_limits[0])
+        sensible_fd_limit = min(1024, fd_limits[0])
+        if (fd_limits[0] > sensible_fd_limit):
+            # Unfortunately this inherits to our children, so allow them to
+            # re-raise by passing through the hard limit unmodified
+            resource.setrlimit(
+                resource.RLIMIT_NOFILE, (sensible_fd_limit, fd_limits[1]))
+            # This is set on import to the hard ulimit. if its defined we
+            # already have imported it, so we need to update it to the new
+            # limit.
+            if (hasattr(subprocess, 'MAXFD') and
+                    subprocess.MAXFD > sensible_fd_limit):
+                subprocess.MAXFD = sensible_fd_limit
+                subprocess_popen._ccloud_fd_patch = True
+        else:
+            subprocess_popen._ccloud_fd_patch = True
 
     return subprocess.Popen(args, shell=shell, stdin=stdin, stdout=stdout,
                             stderr=stderr, preexec_fn=preexec_fn,
