@@ -199,19 +199,8 @@ class DhcpAgent(manager.Manager):
         known_network_ids = set(self.cache.get_network_ids())
 
         try:
-            active_networks = []
-            while True:
-                if active_networks:
-                    marker = active_networks[-1].id
-                else:
-                    marker = None
-                network_slice = self.plugin_rpc.get_active_networks_info(
-                    enable_dhcp_filter=False, limit=50,
-                    marker=marker)
-                if not network_slice:
-                    break
-                active_networks.extend(network_slice)
-
+            active_networks = self.plugin_rpc.get_active_networks_info(
+                enable_dhcp_filter=False)
             LOG.info('All active networks have been fetched through RPC.')
             active_network_ids = set(network.id for network in active_networks)
             for deleted_id in known_network_ids - active_network_ids:
