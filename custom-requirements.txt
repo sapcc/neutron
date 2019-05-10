@@ -13,7 +13,7 @@ vapi_common_client
 nsx_python_sdk
 
 git+https://github.com/sapcc/openstack-watcher-middleware.git#egg=watcher-middleware
-git+https://github.com/sapcc/openstack-audit-middleware.git@support_json_rfc7159_null_doc#egg=audit-middleware
+git+https://github.com/sapcc/openstack-audit-middleware.git@master#egg=audit-middleware
 git+https://github.com/sapcc/ncclient.git@v0.5.3#egg=ncclient
 #-e git+https://github.com/sapcc/ncclient.git@sapcc#egg=ncclient
 -e git+https://github.com/sapcc/neutron-lbaas@stable/queens-m3#egg=neutron-lbaas
