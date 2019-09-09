@@ -37,6 +37,7 @@ from oslo_utils import excutils
 from oslo_utils import uuidutils
 from sqlalchemy import and_
 from sqlalchemy import exc as sql_exc
+from sqlalchemy import func
 from sqlalchemy import not_
 
 from neutron._i18n import _
@@ -1390,12 +1391,18 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
         filters = filters or {}
         fixed_ips = filters.pop('fixed_ips', {})
+        mac_address = filters.pop('mac_address', {})
         query = model_query.get_collection_query(context, Port,
                                                  filters=filters,
                                                  *args, **kwargs)
         ip_addresses = fixed_ips.get('ip_address')
         subnet_ids = fixed_ips.get('subnet_id')
         query._enable_assertions = False
+
+        if mac_address:
+            query = query.filter(
+                func.lower(Port.mac_address) == func.lower(mac_address[0]))
+
         if ip_addresses or subnet_ids:
             query = query.join(Port.fixed_ips)
             if ip_addresses:
@@ -1418,6 +1425,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         items = [self._make_port_dict(c, fields) for c in query]
         if limit and page_reverse:
             items.reverse()
+
         return items
 
     @db_api.retry_if_session_inactive()
