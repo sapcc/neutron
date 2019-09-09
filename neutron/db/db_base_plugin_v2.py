@@ -1425,7 +1425,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         items = [self._make_port_dict(c, fields) for c in query]
         if limit and page_reverse:
             items.reverse()
-
         return items
 
     @db_api.retry_if_session_inactive()
