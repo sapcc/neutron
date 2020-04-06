@@ -1,0 +1,8 @@
+dumb-init
+oslo.vmware
+python-memcached
+pymemcache
+raven
+openstack-agent-checks
+redis
+
