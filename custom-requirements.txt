@@ -6,3 +6,4 @@ raven
 openstack-agent-checks
 redis
 
+-e git+https://github.com/sapcc/asr1k-neutron-l3@stable/train-m3#egg=asr1k-neutron-l3
