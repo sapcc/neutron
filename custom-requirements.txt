@@ -6,4 +6,7 @@ raven
 openstack-agent-checks
 redis
 
+git+https://github.com/sapcc/ncclient.git@v0.5.3#egg=ncclient
 -e git+https://github.com/sapcc/asr1k-neutron-l3@stable/train-m3#egg=asr1k-neutron-l3
+-e git+https://github.com/sapcc/networking-aci.git@stable/train-m3#egg=networking_aci
+
