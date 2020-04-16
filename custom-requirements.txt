@@ -4,6 +4,7 @@ python-memcached
 pymemcache
 raven
 openstack-agent-checks
+networking-bgpvpn<=12.0.0
 redis
 
 git+https://github.com/sapcc/openstack-watcher-middleware.git#egg=watcher-middleware
@@ -12,3 +13,5 @@ git+https://github.com/sapcc/ncclient.git@v0.5.3#egg=ncclient
 -e git+https://github.com/sapcc/asr1k-neutron-l3@stable/train-m3#egg=asr1k-neutron-l3
 -e git+https://github.com/sapcc/networking-aci.git@stable/train-m3#egg=networking_aci
 -e git+https://github.com/sapcc/networking-nsx-t.git@stable/train-m3#egg=networking_nsxv3
+-e git+https://github.com/sapcc/networking-manila.git@stable/train-m3#egg=networking_manila
+-e git+https://github.com/sapcc/networking-f5.git@stable/train-m3#egg=networking_f5
