@@ -883,7 +883,7 @@ class TestOvsNeutronAgent(object):
                     'get_port_tag_dict',
                     return_value={}),\
                 mock.patch.object(self.agent, func_name) as func:
-            skip_devs, _, need_bound_devices, _ = (
+            skip_devs, _, need_bound_devices, _, _, _ = (
                 self.agent.treat_devices_added_or_updated([], False, set()))
             # The function should not raise
             self.assertFalse(skip_devs)
@@ -901,7 +901,7 @@ class TestOvsNeutronAgent(object):
                                   'get_vifs_by_ids',
                                   return_value={details['device']: port}),\
                 mock.patch.object(self.agent, 'port_dead') as func:
-            skip_devs, binding_no_activated_devices, _, _ = (
+            skip_devs, binding_no_activated_devices, _, _, _, _ = (
                 self.agent.treat_devices_added_or_updated([], False, set()))
             self.assertFalse(skip_devs)
             self.assertTrue(func.called)
@@ -978,8 +978,9 @@ class TestOvsNeutronAgent(object):
                 [], False, set())
             # The function should return False for resync and no device
             # processed
-            self.assertEqual((['the_skipped_one'], set(), [], set()),
-                             skip_devs)
+            self.assertEqual(
+                (['the_skipped_one'], set(), [], set(), set(), set()),
+                skip_devs)
             ext_mgr_delete_port.assert_called_once_with(
                 self.agent.context, {'port_id': 'the_skipped_one'})
             treat_vif_port.assert_not_called()
@@ -996,7 +997,7 @@ class TestOvsNeutronAgent(object):
                 mock.patch.object(self.agent,
                                   'treat_vif_port') as treat_vif_port:
             failed_devices = {'added': set(), 'removed': set()}
-            (_, _, _, failed_devices['added']) = (
+            (_, _, _, failed_devices['added'], _, _) = (
                 self.agent.treat_devices_added_or_updated([], False, set()))
             # The function should return False for resync and no device
             # processed
@@ -1027,7 +1028,7 @@ class TestOvsNeutronAgent(object):
                                   return_value={}),\
                 mock.patch.object(self.agent,
                                   'treat_vif_port') as treat_vif_port:
-            skip_devs, _, need_bound_devices, _ = (
+            skip_devs, _, need_bound_devices, _, _, _ = (
                 self.agent.treat_devices_added_or_updated([], False, set()))
             # The function should return False for resync
             self.assertFalse(skip_devs)
@@ -1136,7 +1137,8 @@ class TestOvsNeutronAgent(object):
                     self.agent, "treat_devices_added_or_updated",
                     return_value=(
                         skipped_devices, binding_no_activated_devices, [],
-                        failed_devices['added'])) as device_added_updated,\
+                        failed_devices['added'],
+                        set(), set())) as device_added_updated,\
                 mock.patch.object(self.agent.int_br, "get_ports_attributes",
                                   return_value=[]),\
                 mock.patch.object(self.agent,
