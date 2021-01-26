@@ -1,6 +1,5 @@
 dumb-init
 UcsSdk
-oslo.vmware
 python-memcached
 pymemcache
 redis
