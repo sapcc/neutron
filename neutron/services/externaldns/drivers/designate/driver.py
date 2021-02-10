@@ -23,6 +23,7 @@ from keystoneauth1 import token_endpoint
 from neutron_lib import constants
 from neutron_lib.exceptions import dns as dns_exc
 from oslo_config import cfg
+from oslo_log import log as logging
 
 from neutron.conf.services import extdns_designate_driver
 from neutron.services.externaldns import driver
@@ -37,8 +38,10 @@ _SESSION = None
 CONF = cfg.CONF
 extdns_designate_driver.register_designate_opts()
 
+LOG = logging.getLogger(__name__)
 
-def get_clients(context):
+
+def get_clients(context, all_projects=False, edit_managed=False):
     global _SESSION
 
     if not _SESSION:
@@ -46,7 +49,9 @@ def get_clients(context):
             CONF, 'designate')
 
     auth = token_endpoint.Token(CONF.designate.url, context.auth_token)
-    client = d_client.Client(session=_SESSION, auth=auth)
+    client = d_client.Client(session=_SESSION, auth=auth,
+                             all_projects=all_projects,
+                             edit_managed=edit_managed)
     if CONF.designate.auth_type:
         admin_auth = loading.load_auth_from_conf_options(
             CONF, 'designate')
@@ -57,8 +62,19 @@ def get_clients(context):
             password=CONF.designate.admin_password,
             tenant_name=CONF.designate.admin_tenant_name,
             tenant_id=CONF.designate.admin_tenant_id)
-    admin_client = d_client.Client(session=_SESSION, auth=admin_auth)
+    admin_client = d_client.Client(session=_SESSION, auth=admin_auth,
+                                   endpoint_override=CONF.designate.url,
+                                   all_projects=all_projects,
+                                   edit_managed=edit_managed)
     return client, admin_client
+
+
+def get_all_projects_client(context):
+    return get_clients(context, all_projects=True)
+
+
+def get_all_projects_edit_managed_client(context):
+    return get_clients(context, all_projects=True, edit_managed=True)
 
 
 class Designate(driver.ExternalDNSService):
@@ -146,25 +162,42 @@ class Designate(driver.ExternalDNSService):
                     CONF.designate.ipv6_ptr_zone_prefix_size) / 4)
 
     def delete_record_set(self, context, dns_domain, dns_name, records):
-        designate, designate_admin = get_clients(context)
-        ids_to_delete = self._get_ids_ips_to_delete(
-            dns_domain, '%s.%s' % (dns_name, dns_domain), records, designate)
+        # use client with permissions to delete even managed recordsets
+        client, admin_client = get_all_projects_edit_managed_client(context)
+        LOG.debug("Deleting recordset in Designate: '%s.%s'"
+                  % (dns_name, dns_domain))
+
+        try:
+            ids_to_delete = self._get_ids_ips_to_delete(
+                dns_domain, '%s.%s' % (dns_name, dns_domain),
+                records, client)
+        except (dns_exc.DNSDomainNotFound, d_exc.NotFound):
+            # somebody/ccadmin could have deleted it
+            LOG.debug("Could not find the recordset: '%s.%s'"
+                      % (dns_name, dns_domain))
+
         for _id in ids_to_delete:
-            designate.recordsets.delete(dns_domain, _id)
+            client.recordsets.delete(dns_domain, _id)
+
         if not CONF.designate.allow_reverse_dns_lookup:
             return
 
         for record in records:
-            in_addr_name = netaddr.IPAddress(record).reverse_dns
-            in_addr_zone_name = self._get_in_addr_zone_name(in_addr_name)
-            designate_admin.recordsets.delete(in_addr_zone_name, in_addr_name)
+            try:
+                in_addr_name = netaddr.IPAddress(record).reverse_dns
+                in_addr_zone_name = self._get_in_addr_zone_name(in_addr_name)
+                admin_client.recordsets.delete(in_addr_zone_name,
+                                               in_addr_name)
+            except (dns_exc.DNSDomainNotFound, d_exc.NotFound):
+                LOG.debug("No '%s' PTR record was found in Designate.",
+                          in_addr_name)
 
     def _get_ids_ips_to_delete(self, dns_domain, name, records,
                                designate_client):
         try:
             recordsets = designate_client.recordsets.list(
                 dns_domain, criterion={"name": "%s" % name})
-        except d_exc.NotFound:
+        except (d_exc.NotFound, d_exc.Forbidden):
             raise dns_exc.DNSDomainNotFound(dns_domain=dns_domain)
         ids = [rec['id'] for rec in recordsets]
         ips = [str(ip) for rec in recordsets for ip in rec['records']]

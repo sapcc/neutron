@@ -207,6 +207,9 @@ class DNSDbMixin(object):
 
     def _delete_floatingip_from_external_dns_service(self, context, dns_domain,
                                                      dns_name, records):
+        if not self.dns_driver:
+            return
+
         ips = [str(r) for r in records]
         try:
             self.dns_driver.delete_record_set(context, dns_domain, dns_name,
