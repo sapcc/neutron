@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from collections import defaultdict
 import functools
 
 import netaddr
@@ -1129,7 +1130,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 ip_version=as_ip_version)
 
         self._check_subnetpool_address_scope_network_affinity(
-            context, subnetpool_id, ip_version)
+            context, subnetpool_id, ip_version, address_scope_id)
 
         subnetpools = subnetpool_obj.SubnetPool.get_objects(
             context, address_scope_id=address_scope_id)
@@ -1144,17 +1145,17 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
     def _check_subnetpool_address_scope_network_affinity(self, context,
                                                          subnetpool_id,
-                                                         ip_version):
+                                                         ip_version,
+                                                         address_scope_id):
         """Check whether updating a subnet pool's address scope is allowed.
 
         - Identify the subnets that would be re-scoped
         - Identify the networks that would be affected by re-scoping
         - Find all subnets associated with the affected networks
-        - Perform set difference (all - to_be_rescoped)
-        - If the set difference yields non-zero result size, re-scoping the
-        subnet pool will leave subnets in different address scopes and result
-        in address scope / network affinity violations so raise an exception to
-        block the operation.
+        - Compare address scopes for all of subnet pools related to subnets in
+          each network.
+        If the network has (or will have) different address scopes this check
+        will raise an exception to block the operation.
         """
 
         # TODO(tidwellr) potentially lots of subnets here, optimize this code
@@ -1170,15 +1171,28 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             context,
             network_id=affected_source_network_ids,
             ip_version=ip_version)
-        all_affected_subnet_ids = set(
-            [subnet.id for subnet in all_network_subnets])
+        affected_networks = defaultdict(list)
+        for subnet in all_network_subnets:
+            # skip subnets without subnet pool
+            if not subnet.subnetpool_id:
+                continue
+            affected_networks[subnet.network_id].append(
+                subnet.subnetpool_id)
 
-        # Use set difference to identify the subnets that would be
-        # violating address scope affinity constraints if the subnet
-        # pool's address scope was changed.
-        violations = all_affected_subnet_ids.difference(rescoped_subnet_ids)
-        if violations:
-            raise addr_scope_exc.NetworkAddressScopeAffinityError()
+        subnet_pools = subnetpool_obj.SubnetPool.get_objects(
+            context,
+            id=[p for n in affected_networks.values() for p in n])
+        affected_scopes = {sp.id:sp.address_scope_id for sp in subnet_pools}
+
+        for pools in affected_networks.values():
+            # as first step will compare with passed address scope
+            last_scope = address_scope_id
+            for pool in pools:
+                # address scopes should be the same in one network
+                scope = affected_scopes.get(pool)
+                if scope and last_scope and scope != last_scope:
+                    raise addr_scope_exc.NetworkAddressScopeAffinityError()
+                last_scope = scope
 
     def _check_subnetpool_update_allowed(self, context, subnetpool_id,
                                          address_scope_id):
