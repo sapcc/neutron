@@ -1170,12 +1170,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             context,
             network_id=affected_source_network_ids,
             ip_version=ip_version)
-        affected_pool_ids = set()
-        for subnet in all_network_subnets:
-            # skip subnets without subnet pool
-            if not subnet.subnetpool_id:
-                continue
-            affected_pool_ids.add(subnet.subnetpool_id)
+        affected_pool_ids = set(
+            [s.subnetpool_id for s in all_network_subnets if s.subnetpool_id])
 
         subnet_pools = subnetpool_obj.SubnetPool.get_objects(
             context,
@@ -1183,7 +1179,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         affected_scopes = {sp.id: sp.address_scope_id for sp in subnet_pools}
 
         for pool in affected_pool_ids:
-            # address scopes should be the same in one network
+            # address scopes should be the same in all networks raleted to
+            # the address scope.
             scope = affected_scopes.get(pool)
             if scope and scope != address_scope_id:
                 raise addr_scope_exc.NetworkAddressScopeAffinityError()
