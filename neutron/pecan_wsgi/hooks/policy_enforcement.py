@@ -52,7 +52,7 @@ def fetch_resource(method, neutron_context, controller,
             # handle the necessary logic.
             return
         field_list = [name for (name, value) in attrs.items()
-                      if (value.get('required_by_policy') or
+                      if (value.get('required_by_policy') or value.get('enforce_policy') or
                           value.get('primary_key') or 'default' not in value)]
     plugin = manager.NeutronManager.get_plugin_for_resource(collection)
     if plugin:
