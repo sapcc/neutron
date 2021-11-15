@@ -15,21 +15,29 @@
 #    under the License.
 
 import os
+import signal
 
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
 from neutron_lib.callbacks import resources
 from oslo_config import cfg
+from oslo_reports import guru_meditation_report as gmr
 
 from neutron.api import wsgi
 from neutron.common import config
 from neutron.common import profiler
+from neutron import version
 
 
 def api_server():
     if os.environ.get('PYTHONWARNINGS') == 'ignore:Unverified HTTPS request':
         import urllib3  # pylint: disable=import-outside-toplevel
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    _version_string = version.version_info.release_string()
+    gmr.TextGuruMeditation.setup_autorun(version=_version_string,
+                                         signum=signal.SIGWINCH)
+
     profiler.setup('neutron-server', cfg.CONF.host)
     app = config.load_paste_app('neutron')
     registry.publish(resources.PROCESS, events.BEFORE_SPAWN,
