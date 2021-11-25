@@ -484,7 +484,11 @@ class Dnsmasq(DhcpLocalProcess):
         for server in self.conf.dnsmasq_dns_servers:
             cmd.append('--server=%s' % server)
 
-        if self.conf.dns_domain:
+        network_dns_domain = self.network.get('dns_domain')
+        if not network_dns_domain and self.conf.dns_domain:
+            # Only force domain setting if no dns_domain is set on network.
+            # If network dns_domain is set, it means external DNS service
+            # is responsible for name resolution.
             cmd.append('--domain=%s' % self.conf.dns_domain)
 
         if self.conf.dhcp_broadcast_reply:
@@ -709,7 +713,11 @@ class Dnsmasq(DhcpLocalProcess):
             hostname = ('host-%s' %
                         ip_addresses[0].replace('.', '-').replace(':', '-'))
             fqdn = hostname
-            if self.conf.dns_domain:
+
+            network_dns_domain = self.network.get('dns_domain')
+            if network_dns_domain:
+                fqdn = '%s.%s' % (fqdn, network_dns_domain)
+            elif self.conf.dns_domain:
                 fqdn = '%s.%s' % (fqdn, self.conf.dns_domain)
 
         return hostname, fqdn
@@ -1142,12 +1150,18 @@ class Dnsmasq(DhcpLocalProcess):
                 # Here is something to check still
                 subnets_without_nameservers.add(subnet.id)
 
-            if self.conf.dns_domain and subnet.ip_version == 6:
+            # use network dns_domain if set (ext DNS service):
+            dns_domain = self.network.get('dns_domain')
+            if not dns_domain and self.conf.dns_domain:
+                # use config defined dns_domain as a fallback:
+                dns_domain = self.conf.dns_domain
+
+            if dns_domain and subnet.ip_version == 6:
                 # This should be change also
                 options.append(
                     self._format_option(
                         subnet.ip_version, self._SUBNET_TAG_PREFIX % subnet.id,
-                        "domain-search", ''.join(self.conf.dns_domain)))
+                        "domain-search", ''.join(dns_domain)))
 
             gateway = subnet.gateway_ip
             host_routes = []
