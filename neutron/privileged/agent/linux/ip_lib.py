@@ -556,7 +556,7 @@ def list_netns(**kwargs):
     return netns.listnetns(**kwargs)
 
 
-def make_serializable(value):
+def make_serializable(value, attr_filter=None):
     """Make a pyroute2 object serializable
 
     This function converts 'netlink.nla_slot' object (key, value) in a list
@@ -566,16 +566,20 @@ def make_serializable(value):
         return value.decode() if isinstance(value, bytes) else value
 
     if isinstance(value, list):
-        return [make_serializable(item) for item in value]
+            return [make_serializable(item, attr_filter) for item in value
+                    if attr_filter is None or
+                    not isinstance(item, netlink.nla_slot) or
+                    (attr_filter and item.name in attr_filter)]
     elif isinstance(value, netlink.nla_slot):
-        return [_ensure_string(value[0]), make_serializable(value[1])]
+        return [_ensure_string(value[0]), make_serializable(value[1],
+                                                            attr_filter)]
     elif isinstance(value, netlink.nla_base):
-        return make_serializable(value.dump())
+        return make_serializable(value.dump(), attr_filter)
     elif isinstance(value, dict):
-        return {_ensure_string(key): make_serializable(data)
+        return {_ensure_string(key): make_serializable(data, attr_filter)
                 for key, data in value.items()}
     elif isinstance(value, tuple):
-        return tuple(make_serializable(item) for item in value)
+        return tuple(make_serializable(item, attr_filter) for item in value)
     return _ensure_string(value)
 
 
@@ -586,14 +590,15 @@ def make_serializable(value):
     stop=tenacity.stop_after_delay(8),
     reraise=True)
 @privileged.default.entrypoint
-def get_link_devices(namespace, **kwargs):
+def get_link_devices(namespace, attr_filter=None, **kwargs):
     """List interfaces in a namespace
 
     :return: (list) interfaces in a namespace
     """
     try:
         with get_iproute(namespace) as ip:
-            return make_serializable(ip.get_links(**kwargs))
+            return make_serializable(ip.get_links(**kwargs),
+                                     attr_filter=attr_filter)
     except OSError as e:
         if e.errno == errno.ENOENT:
             raise NetworkNamespaceNotFound(netns_name=namespace)
@@ -606,7 +611,8 @@ def get_device_names(namespace, **kwargs):
     :return: a list of strings with the names of the interfaces in a namespace
     """
     devices_attrs = [link['attrs'] for link
-                     in get_link_devices(namespace, **kwargs)]
+                     in get_link_devices(namespace,
+                                         attr_filter=['IFLA_IFNAME'], **kwargs)]
     device_names = []
     for device_attrs in devices_attrs:
         for link_name in (link_attr[1] for link_attr in device_attrs
