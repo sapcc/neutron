@@ -1799,7 +1799,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                'gateway_ip': subnet['gateway_ip'],
                                'dns_nameservers': subnet['dns_nameservers'],
                                'ipv6_ra_mode': subnet['ipv6_ra_mode'],
-                               'subnetpool_id': subnet['subnetpool_id']}
+                               'subnetpool_id': subnet['subnetpool_id'],
+                               'address_scope_id': subnet['address_scope_id']}
                 for fixed_ip in port['fixed_ips']:
                     if fixed_ip['subnet_id'] == subnet['id']:
                         port['subnets'].append(subnet_info)

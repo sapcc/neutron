@@ -138,7 +138,7 @@ class TestL3_NAT_dbonly_mixin(base.BaseTestCase):
             self.db._populate_mtu_and_subnets_for_ports(mock.sentinel.context,
                                                         ports)
             keys = ('id', 'cidr', 'gateway_ip', 'ipv6_ra_mode',
-                    'subnetpool_id', 'dns_nameservers')
+                    'subnetpool_id', 'dns_nameservers', 'address_scope_id')
             address_scopes = {4: None, 6: mock.sentinel.address_scope_id}
             self.assertEqual([{'extra_subnets': [],
                                'fixed_ips': [{'subnet_id':
