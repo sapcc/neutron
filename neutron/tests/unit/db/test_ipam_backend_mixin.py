@@ -17,7 +17,6 @@ import mock
 import netaddr
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants
-from neutron_lib import exceptions as exc
 from neutron_lib.exceptions import address_scope as addr_scope_exc
 from oslo_utils import uuidutils
 import webob.exc
@@ -326,19 +325,27 @@ class TestIpamBackendMixin(base.BaseTestCase):
                           subnetpool,
                           address_scope)
 
-    def test__validate_network_subnetpools_subnetpool_mismatch(self):
+    def test__validate_network_subnetpools_new_subnetpool(self):
         subnet = mock.MagicMock(ip_version=constants.IP_VERSION_4)
         subnet.subnetpool_id = 'fake-subnetpool'
         network = mock.MagicMock(subnets=[subnet])
         subnetpool = mock.MagicMock(id=uuidutils.generate_uuid())
         subnetpool.ip_version = constants.IP_VERSION_4
+        self.mixin._validate_network_subnetpools(
+            network,
+            constants.IP_VERSION_4,
+            subnetpool,
+            None)
 
-        self.assertRaises(exc.NetworkSubnetPoolAffinityError,
-                          self.mixin._validate_network_subnetpools,
-                          network,
-                          constants.IP_VERSION_4,
-                          subnetpool,
-                          None)
+    def test__validate_network_subnetpools_new_subnet_no_subnetpool(self):
+        address_scope_id = "dummy-scope"
+        address_scope = mock.MagicMock()
+        address_scope.id.return_value = address_scope_id
+        self.mixin._validate_network_subnetpools(
+            mock.MagicMock(),
+            constants.IP_VERSION_4,
+            None,
+            address_scope)
 
 
 class TestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
