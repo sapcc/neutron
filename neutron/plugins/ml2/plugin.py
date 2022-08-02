@@ -1641,7 +1641,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     const.ATTR_NOT_SPECIFIED)
                 if raw_mac_address is const.ATTR_NOT_SPECIFIED:
                     raw_mac_address = macs.pop()
-                elif self._is_mac_in_use(context, network_id, raw_mac_address):
+                elif self._is_mac_in_use(context, network_id, raw_mac_address,
+                                         globally_unique=True):
                     raise exc.MacAddressInUse(net_id=network_id,
                                               mac=raw_mac_address)
                 eui_mac_address = netaddr.EUI(raw_mac_address,
