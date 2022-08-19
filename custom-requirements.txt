@@ -1,3 +1,6 @@
+# jaeger osprofiler
+jaeger-client
+
 # init reaper
 dumb-init
 
