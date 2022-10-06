@@ -247,6 +247,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.type_manager = managers.TypeManager()
         self.extension_manager = managers.ExtensionManager()
         self.mechanism_manager = managers.MechanismManager()
+        # Register these resources before the relevant extensions are loaded
+        # to prevent failures due to QuotaResourceUnknown error while creating
+        # default security group
+        resource_registry.register_resource_by_name('security_group')
+        resource_registry.register_resource_by_name('security_group_rule')
         super(Ml2Plugin, self).__init__()
         self.type_manager.initialize()
         self.extension_manager.initialize()
