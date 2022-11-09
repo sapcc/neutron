@@ -1,5 +1,5 @@
 export DEBIAN_FRONTEND=noninteractive && \
-export UPPER_CONSTRAINTS_FILE=https://raw.githubusercontent.com/sapcc/requirements/stable/ussuri-m3/upper-constraints.txt && \
+export TOX_CONSTRAINTS_FILE=https://raw.githubusercontent.com/sapcc/requirements/stable/ussuri-m3/upper-constraints.txt && \
 apt-get update && \
 apt-get install -y build-essential python-pip python3-dev git libpcre++-dev gettext sudo && \
 pip install -U pip && \
