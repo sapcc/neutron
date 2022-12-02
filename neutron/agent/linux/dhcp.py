@@ -20,6 +20,7 @@ import itertools
 import os
 import re
 import shutil
+import signal
 import time
 
 import netaddr
@@ -44,6 +45,7 @@ from neutron.common import utils as common_utils
 from neutron.ipam import utils as ipam_utils
 
 LOG = logging.getLogger(__name__)
+SIGTERM_TIMEOUT = 5
 
 UDP = 'udp'
 TCP = 'tcp'
@@ -304,9 +306,18 @@ class DhcpLocalProcess(DhcpBase):
     def disable(self, retain_port=False, block=False):
         """Disable DHCP for this network by killing the local process."""
         self.process_monitor.unregister(self.network.id, DNSMASQ_SERVICE_NAME)
-        self._get_process_manager().disable()
+        pm = self._get_process_manager()
+        pm.disable(sig=str(int(signal.SIGTERM)))
         if block:
-            common_utils.wait_until_true(lambda: not self.active)
+            try:
+                common_utils.wait_until_true(lambda: not self.active,
+                                             timeout=SIGTERM_TIMEOUT)
+            except common_utils.WaitTimeout:
+                LOG.warning('dnsmasq process %s did not finish after SIGTERM '
+                            'signal in %s seconds, sending SIGKILL signal',
+                            pm.pid, SIGTERM_TIMEOUT)
+                pm.disable(sig=str(int(signal.SIGKILL)))
+                common_utils.wait_until_true(lambda: not self.active)
         if not retain_port:
             self._destroy_namespace_and_port()
         self._remove_config_files()
