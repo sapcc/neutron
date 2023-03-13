@@ -42,7 +42,6 @@ from neutron.privileged.agent.linux import utils as priv_utils
 
 LOG = logging.getLogger(__name__)
 
-
 IP_NONLOCAL_BIND = 'net.ipv4.ip_nonlocal_bind'
 
 LOOPBACK_DEVNAME = 'lo'
@@ -544,6 +543,7 @@ class IpAddrCommand(IpDeviceCommandBase):
 
     def list(self, scope=None, to=None, filters=None, ip_version=None):
         """Get device details of a device named <self.name>."""
+
         def filter_device(device, filters):
             # Accepted filters: dynamic, permanent, tentative, dadfailed.
             for filter in filters:
@@ -582,6 +582,7 @@ class IpAddrCommand(IpDeviceCommandBase):
 
         raises AddressNotReady if times out or address not present on interface
         """
+
         def is_address_ready():
             try:
                 addr_info = self.list(to=address)[0]
@@ -595,6 +596,7 @@ class IpAddrCommand(IpDeviceCommandBase):
                 raise AddressNotReady(
                     address=address, reason=_('Duplicate address detected'))
             return False
+
         errmsg = _("Exceeded %s second limit waiting for "
                    "address to leave the tentative state.") % wait_time
         common_utils.wait_until_true(
@@ -1085,6 +1087,7 @@ def send_ip_addr_adv_notif(
                          using eventlet, False to use Python threads
                          (threading).
     """
+
     def arping():
         _arping(ns_name, iface_name, address, count, log_exception)
 
@@ -1414,10 +1417,10 @@ def get_devices_info(namespace, attrs=None, **kwargs):
                      'IFLA_VXLAN_ID'],
         'vxlan_group': ['IFLA_LINKINFO', 'IFLA_INFO_KIND', 'IFLA_INFO_DATA',
                         'IFLA_VXLAN_GROUP'],
-        'vxlan_link_index': ['IFLA_LINKINFO', 'IFLA_INFO_KIND', 'IFLA_INFO_DATA',
-                             'IFLA_VXLAN_LINK'],
-        'vxlan_link_name': ['IFLA_LINKINFO', 'IFLA_INFO_KIND', 'IFLA_INFO_DATA',
-                            'IFLA_VXLAN_LINK'],
+        'vxlan_link_index': ['IFLA_LINKINFO', 'IFLA_INFO_KIND',
+                             'IFLA_INFO_DATA', 'IFLA_VXLAN_LINK'],
+        'vxlan_link_name': ['IFLA_LINKINFO', 'IFLA_INFO_KIND',
+                            'IFLA_INFO_DATA', 'IFLA_VXLAN_LINK'],
     }
     attr_filter = set()
     if attrs is not None:
@@ -1480,6 +1483,7 @@ def ip_monitor(namespace, queue, event_stop, event_started):
     cannot use privsep because is a blocking function and can exhaust the
     number of working threads.
     """
+
     def get_device_name(index):
         try:
             with privileged.get_iproute(namespace) as ip:
@@ -1561,6 +1565,7 @@ def add_ip_route(namespace, cidr, device=None, via=None, table=None,
 def list_ip_routes(namespace, ip_version, scope=None, via=None, table=None,
                    device=None, **kwargs):
     """List IP routes"""
+
     def get_device(index, devices):
         for device in (d for d in devices if d['index'] == index):
             return get_attr(device, 'IFLA_IFNAME')
