@@ -41,7 +41,7 @@ from neutron_lib.services import base as base_services
 from oslo_log import log as logging
 from oslo_utils import uuidutils
 from sqlalchemy import orm
-from sqlalchemy.orm import exc
+from sqlalchemy.orm import exc, joinedload, lazyload
 
 from neutron._i18n import _
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -649,13 +649,50 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                     page_reverse=False):
         marker_obj = lib_db_utils.get_marker_obj(
             self, context, 'router', limit, marker)
+        lazy_fields = [
+            lazyload(l3_models.Router.attached_ports),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.port_forwardings),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.allowed_address_pairs),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.binding_levels),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.dhcp_opts),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.dns),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.port_security),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.security_groups),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.qos_network_policy_binding),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.trunk_port),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.sub_port),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.port_bindings),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.data_plane_status),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.propagate_uplink_status),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.device_profile),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.qos_policy_binding),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.numa_affinity_policy),
+            joinedload(l3_models.Router.gw_port).lazyload(
+                models_v2.Port.standard_attr)]
         return model_query.get_collection(context, l3_models.Router,
                                           self._make_router_dict,
                                           filters=filters, fields=fields,
                                           sorts=sorts,
                                           limit=limit,
                                           marker_obj=marker_obj,
-                                          page_reverse=page_reverse)
+                                          page_reverse=page_reverse,
+                                          lazy_fields=lazy_fields)
 
     @db_api.retry_if_session_inactive()
     def get_routers_count(self, context, filters=None):
