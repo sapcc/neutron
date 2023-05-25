@@ -246,12 +246,13 @@ class TestDesignateDriver(base.BaseTestCase):
         self.client.recordsets.list.side_effect = d_exc.NotFound
         self.all_projects_client.recordsets.list.side_effect = d_exc.NotFound
 
-        self.assertRaisesRegex(
-            dns_exc.DNSDomainNotFound,
-            'Domain example.test. not found in the external DNS service',
-            self.driver.delete_record_set, self.context, 'example.test.',
-            'test', ['192.168.0.10']
-        )
+        # as part of a custom patch, we do not want to raise
+        # an DNSDomainNotFound exception as in the upstream testcase
+        self.assertIsNone(self.driver.delete_record_set(
+            self.context,
+            'example.test.',
+            'test',
+            ['192.168.0.10']))
 
     def test_ipv4_ptr_is_misconfigured(self):
         cfg.CONF.set_override(
