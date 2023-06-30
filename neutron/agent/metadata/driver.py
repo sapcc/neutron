@@ -73,6 +73,7 @@ listen listener
     bind %(host)s:%(port)s
     %(bind_v6_line)s
     server metadata %(unix_socket_path)s
+    http-request del-header X-Forwarded-For
     http-request del-header X-Neutron-%(res_type_del)s-ID
     http-request set-header X-Neutron-%(res_type)s-ID %(res_id)s
 """
