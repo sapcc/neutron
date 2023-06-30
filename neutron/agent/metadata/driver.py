@@ -58,6 +58,7 @@ listen listener
     bind %(host)s:%(port)s
     %(bind_v6_line)s
     server metadata %(unix_socket_path)s
+    http-request del-header X-Forwarded-For
 """
 
 
