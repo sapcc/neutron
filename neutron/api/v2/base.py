@@ -669,6 +669,12 @@ class Controller(object):
             self._set_parent_id_into_ext_resources_request(
                 request, orig_obj, parent_id)
         try:
+            # Additionally check on the source (original) data to ensure not to updated fields with a certain value set
+            # which is prohibited by policy (e.g. field device_owner with value network:xxx)
+            policy.enforce(request.context,
+                           action,
+                           orig_object_copy,
+                           pluralized=self._collection)
             policy.enforce(request.context,
                            action,
                            orig_obj,
