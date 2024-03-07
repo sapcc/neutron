@@ -121,7 +121,7 @@ class ExtraRoute_dbonly_mixin(l3_db.L3_NAT_dbonly_mixin):
 
     def _update_extra_routes(self, context, router, routes):
         self._validate_routes(context, router['id'], routes)
-        old_routes = self._get_extra_routes_by_router_id(context, router['id'])
+        old_routes = self._get_extra_routes_by_router_id(context, router['id'], for_update=True)
         added, removed = helpers.diff_list_of_dict(old_routes, routes)
         LOG.debug('Added routes are %s', added)
         for route in added:
@@ -147,8 +147,14 @@ class ExtraRoute_dbonly_mixin(l3_db.L3_NAT_dbonly_mixin):
                  'nexthop': str(route['nexthop'])}
                 for route in extra_routes]
 
-    def _get_extra_routes_by_router_id(self, context, id):
-        router_objs = l3_obj.RouterRoute.get_objects(context, router_id=id)
+    def _get_extra_routes_by_router_id(self, context, id, for_update=False):
+        if for_update:
+            rr_model = l3_obj.RouterRoute.db_model
+            with db_api.CONTEXT_WRITER.using(context):
+                query = context.session.query(rr_model).with_for_update().filter_by(router_id=id)
+                router_objs = [l3_obj.RouterRoute._load_object(context, r) for r in query.all()]
+        else:
+            router_objs = l3_obj.RouterRoute.get_objects(context, router_id=id)
         return self._make_extra_route_list(router_objs)
 
     def _confirm_router_interface_not_in_use(self, context, router_id,
