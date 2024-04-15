@@ -37,6 +37,7 @@ from neutron.objects import base as objects_base
 from neutron.objects import trunk as trunk_objects
 from neutron.services.trunk import drivers
 from neutron.services.trunk import exceptions as trunk_exc
+from neutron.services.trunk.rpc import backend
 from neutron.services.trunk import rules
 from neutron.services.trunk.seg_types import validators
 
@@ -90,6 +91,13 @@ class TrunkPlugin(service_base.ServicePluginBase):
             port_res['trunk_details'] = trunk_details
 
         return port_res
+
+    def start_rpc_listeners(self):
+        if not any(drv.rpc_required for drv in self._drivers):
+            return []
+
+        self._rpc_backend = backend.ServerSideRpcBackend()
+        return [self._rpc_backend]
 
     @staticmethod
     @resource_extend.extends([port_def.COLLECTION_NAME_BULK])
@@ -154,9 +162,6 @@ class TrunkPlugin(service_base.ServicePluginBase):
         except KeyError:
             raise trunk_exc.SegmentationTypeValidatorNotFound(
                 seg_type=seg_type)
-
-    def set_rpc_backend(self, backend):
-        self._rpc_backend = backend
 
     def is_rpc_enabled(self):
         return self._rpc_backend is not None
