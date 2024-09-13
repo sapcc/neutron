@@ -7239,12 +7239,25 @@ class NeutronDbPluginV2AsMixinTestCase(NeutronDbPluginV2TestCase,
         network.subnets = [models_v2.Subnet(subnetpool_id='test_id',
                                             ip_version=constants.IP_VERSION_4)]
         new_subnetpool_id = None
-        self.assertRaises(lib_exc.NetworkSubnetPoolAffinityError,
-                          self.plugin.ipam._validate_network_subnetpools,
-                          network,
-                          constants.IP_VERSION_4,
-                          new_subnetpool_id,
-                          None)
+        # Migrationg from yoga --> caracal, this test was not part
+        # of our custom yoga stable/yoga-m3 branch
+        # Subnets with  no subnetpool
+        # (hence now addrress scope) should be allowed
+        # self.assertRaises(lib_exc.NetworkSubnetPoolAffinityError,
+        #                  self.plugin.ipam._validate_network_subnetpools,
+        #                  network,
+        #                  constants.IP_VERSION_4,
+        #                  new_subnetpool_id,
+        #                  None)
+        try:
+            self.plugin.ipam._validate_network_subnetpools(
+                network,
+                constants.IP_VERSION_4,
+                new_subnetpool_id,
+                None)
+        except lib_exc.NetworkSubnetPoolAffinityError:
+            assert False, ('Subnets with no subnetpool '
+                '(hence now addrress scope) are explicityl  be allowed')
 
     def test_create_subnet_invalid_network_mtu_ipv4_returns_409(self):
         self.net_data['network']['mtu'] = common_constants.IPV4_MIN_MTU - 1
