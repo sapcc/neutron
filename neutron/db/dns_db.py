@@ -114,7 +114,7 @@ class DNSDbMixin(object):
         self._add_ips_to_external_dns_service(
             context, dns_actions_data.current_dns_domain,
             dns_actions_data.current_dns_name,
-            [floatingip_data['floating_ip_address']])
+            floatingip_data)
 
     def _process_dns_floatingip_update_precommit(self, context,
                                                  floatingip_data):
@@ -169,12 +169,12 @@ class DNSDbMixin(object):
             self._delete_floatingip_from_external_dns_service(
                 context, dns_actions_data.previous_dns_domain,
                 dns_actions_data.previous_dns_name,
-                [floatingip_data['floating_ip_address']])
+                floatingip_data)
         if dns_actions_data.current_dns_name:
             self._add_ips_to_external_dns_service(
                 context, dns_actions_data.current_dns_domain,
                 dns_actions_data.current_dns_name,
-                [floatingip_data['floating_ip_address']])
+                floatingip_data)
 
     def _process_dns_floatingip_delete(self, context, floatingip_data):
         if not extensions.is_extension_supported(
@@ -208,20 +208,24 @@ class DNSDbMixin(object):
         return port_dns['dns_name'], net_dns['dns_domain']
 
     def _delete_floatingip_from_external_dns_service(self, context, dns_domain,
-                                                     dns_name, records):
-        ips = [str(r) for r in records]
-        try:
-            self.dns_driver.delete_record_set(context, dns_domain, dns_name,
-                                              ips)
-        except (dns_exc.DNSDomainNotFound, dns_exc.DuplicateRecordSet) as e:
-            LOG.exception("Error deleting Floating IP data from external "
-                          "DNS service. Name: '%(name)s'. Domain: "
-                          "'%(domain)s'. IP addresses '%(ips)s'. DNS "
-                          "service driver message '%(message)s'",
-                          {"name": dns_name,
-                           "domain": dns_domain,
-                           "message": e.msg,
-                           "ips": ', '.join(ips)})
+                                                     dns_name, floatingip_data):
+        if "cloud" in self._dns_driver.lower():
+            self.dns_driver.create_ptr_record(context, dns_domain,
+                                              floatingip_data['id'])
+        else:
+            ips = [str(r) for r in [floatingip_data['floating_ip_address']]]
+            try:
+                self.dns_driver.delete_record_set(context, dns_domain, dns_name,
+                                                  ips)
+            except (dns_exc.DNSDomainNotFound, dns_exc.DuplicateRecordSet) as e:
+                LOG.exception("Error deleting Floating IP data from external "
+                              "DNS service. Name: '%(name)s'. Domain: "
+                              "'%(domain)s'. IP addresses '%(ips)s'. DNS "
+                              "service driver message '%(message)s'",
+                              {"name": dns_name,
+                               "domain": dns_domain,
+                               "message": e.msg,
+                               "ips": ', '.join(ips)})
 
     def _get_requested_state_for_external_dns_service_create(self, context,
                                                              floatingip_data,
@@ -240,16 +244,20 @@ class DNSDbMixin(object):
         return None, None
 
     def _add_ips_to_external_dns_service(self, context, dns_domain, dns_name,
-                                         records):
-        ips = [str(r) for r in records]
-        try:
-            self.dns_driver.create_record_set(context, dns_domain, dns_name,
-                                              ips)
-        except (dns_exc.DNSDomainNotFound, dns_exc.DuplicateRecordSet) as e:
-            LOG.exception("Error publishing floating IP data in external "
-                          "DNS service. Name: '%(name)s'. Domain: "
-                          "'%(domain)s'. DNS service driver message "
-                          "'%(message)s'",
-                          {"name": dns_name,
-                           "domain": dns_domain,
-                           "message": e.msg})
+                                         floatingip_data):
+        if "cloud" in self._dns_driver.lower():
+            self.dns_driver.create_ptr_record(context, dns_domain,
+                                              floatingip_data['id'])
+        else:
+            ips = [str(r) for r in [floatingip_data['floating_ip_address']]]
+            try:
+                self.dns_driver.create_record_set(context, dns_domain, dns_name,
+                                                  ips)
+            except (dns_exc.DNSDomainNotFound, dns_exc.DuplicateRecordSet) as e:
+                LOG.exception("Error publishing floating IP data in external "
+                              "DNS service. Name: '%(name)s'. Domain: "
+                              "'%(domain)s'. DNS service driver message "
+                              "'%(message)s'",
+                              {"name": dns_name,
+                               "domain": dns_domain,
+                               "message": e.msg})
