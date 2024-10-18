@@ -114,7 +114,7 @@ class DNSDbMixin(object):
         self._add_ips_to_external_dns_service(
             context, dns_actions_data.current_dns_domain,
             dns_actions_data.current_dns_name,
-            [floatingip_data['floating_ip_address']])
+            floatingip_data)
 
     def _process_dns_floatingip_update_precommit(self, context,
                                                  floatingip_data):
@@ -169,12 +169,12 @@ class DNSDbMixin(object):
             self._delete_floatingip_from_external_dns_service(
                 context, dns_actions_data.previous_dns_domain,
                 dns_actions_data.previous_dns_name,
-                [floatingip_data['floating_ip_address']])
+                floatingip_data)
         if dns_actions_data.current_dns_name:
             self._add_ips_to_external_dns_service(
                 context, dns_actions_data.current_dns_domain,
                 dns_actions_data.current_dns_name,
-                [floatingip_data['floating_ip_address']])
+                floatingip_data)
 
     def _process_dns_floatingip_delete(self, context, floatingip_data):
         if not extensions.is_extension_supported(
@@ -182,11 +182,13 @@ class DNSDbMixin(object):
             return
         dns_data_db = fip_obj.FloatingIPDNS.get_object(
             context, floatingip_id=floatingip_data['id'])
+
         if dns_data_db:
             self._delete_floatingip_from_external_dns_service(
                 context, dns_data_db['published_dns_domain'],
                 dns_data_db['published_dns_name'],
-                [floatingip_data['floating_ip_address']])
+                floatingip_data)
+
 
     def _validate_floatingip_dns(self, dns_name, dns_domain):
         if dns_domain and not dns_name:
@@ -208,11 +210,16 @@ class DNSDbMixin(object):
         return port_dns['dns_name'], net_dns['dns_domain']
 
     def _delete_floatingip_from_external_dns_service(self, context, dns_domain,
-                                                     dns_name, records):
+                                                     dns_name, floatingip_data):
+        records = [floatingip_data['floating_ip_address']]
         ips = [str(r) for r in records]
         try:
-            self.dns_driver.delete_record_set(context, dns_domain, dns_name,
-                                              ips)
+            if hasattr(self._dns_driver, 'ccloud'):
+                self.dns_driver.delete_record_set(context, dns_domain, dns_name,
+                                                  floatingip_data)
+            else:
+                self.dns_driver.delete_record_set(context, dns_domain, dns_name,
+                                                  ips)
         except (dns_exc.DNSDomainNotFound, dns_exc.DuplicateRecordSet) as e:
             LOG.exception("Error deleting Floating IP data from external "
                           "DNS service. Name: '%(name)s'. Domain: "
@@ -240,11 +247,15 @@ class DNSDbMixin(object):
         return None, None
 
     def _add_ips_to_external_dns_service(self, context, dns_domain, dns_name,
-                                         records):
-        ips = [str(r) for r in records]
+                                         floatingip_data):
+        ips = [str(r) for r in [floatingip_data['floating_ip_address']]]
         try:
-            self.dns_driver.create_record_set(context, dns_domain, dns_name,
-                                              ips)
+            if hasattr(self._dns_driver, 'ccloud'):
+                self.dns_driver.create_record_set(context, dns_domain, dns_name,
+                                                  floatingip_data)
+            else:
+                self.dns_driver.create_record_set(context, dns_domain, dns_name,
+                                                  ips)
         except (dns_exc.DNSDomainNotFound, dns_exc.DuplicateRecordSet) as e:
             LOG.exception("Error publishing floating IP data in external "
                           "DNS service. Name: '%(name)s'. Domain: "
