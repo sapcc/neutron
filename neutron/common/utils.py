@@ -17,8 +17,8 @@
 # when needed.
 
 """Utilities and helper functions."""
-from collections import abc
 import functools
+from collections import abc
 import hashlib
 import hmac
 import importlib
