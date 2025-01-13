@@ -25,6 +25,7 @@ ignore_regexes=(
     "^plugins/ml2/test_tracked_resources.py$"
     "^plugins/ml2/drivers/openvswitch/agent/test_agent_scheduler.py$"
     "^plugins/ml2/drivers/openvswitch/agent/test_ovs_tunnel.py$"
+    "^extensions/test_dns_ccloud.py$"
 )
 
 error_count=0
