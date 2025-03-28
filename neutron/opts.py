@@ -192,7 +192,11 @@ def list_opts():
          itertools.chain(
              neutron.conf.common.placement_opts)
          ),
-        ('quotas', neutron.conf.quota.core_quota_opts)
+        ('quotas', neutron.conf.quota.core_quota_opts),
+        (neutron.conf.service.DNSSETTINGS_CONF_SECTION,
+         itertools.chain(
+             neutron.conf.service.DNSSETTINGS_OPTS)
+         ),
     ]
 
 
