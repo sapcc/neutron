@@ -17,6 +17,7 @@ import abc
 import collections
 import copy
 import io
+import ipaddress
 import itertools
 import os
 import re
@@ -545,7 +546,57 @@ class Dnsmasq(DhcpLocalProcess):
 
         cmd.append('--conf-file=%s' %
                    (self.conf.dnsmasq_config_file.strip() or '/dev/null'))
-        for server in self.conf.dnsmasq_dns_servers:
+
+        # check if the network has custom NTP servers set,
+        # or fallback to the configuration defaults (if they are set)
+        ntp_servers = getattr(self.network, 'ntp_servers',
+                              self.conf.dnsmasq_ntp_servers)
+
+        if ntp_servers:
+            # only if we have ntp servers, append the option.
+            # note that if the option is present in the config file, the config
+            # file will take precedence!
+            servers = []
+            for server in ntp_servers:
+                try:
+                    address = ipaddress.ip_address(server)
+                    if address.version == 4:
+                        servers.append(address.compressed)
+                    else:
+                        LOG.error('Invalid NTP server "%s" for network %s'
+                                  ' DHCP option 42 only supports IPv4',
+                                  server, self.network.id)
+                except ValueError:
+                    LOG.error('Invalid NTP server "%s" for network %s',
+                              server, self.network.id)
+
+            if servers:
+                servers = ",".join(servers)
+                LOG.debug("Adding NTP servers %s for network %s",
+                          servers,
+                          self.network.id)
+                cmd.append(f'--dhcp-option=42,{servers}')
+            else:
+                LOG.warning('No valid NTP servers in config for network %s',
+                            self.network.id)
+
+        # if the network has custom upstreams set, we will use them instead
+        if hasattr(self.network, 'dns_custom_upstreams'):
+            # Do some input validation on the data we got via rpc call, to
+            # avoid dnsmasq not starting - worst case is we have no dns, but
+            # at least dhcp is working. if all servers are wrong. Should not
+            # happen as we are doing validation on the server side as well.
+            dns_servers = []
+            for server in self.network.dns_custom_upstreams:
+                try:
+                    dns_servers.append(ipaddress.ip_address(server).compressed)
+                except ValueError:
+                    LOG.error('Invalid DNS server "%s" for network %s',
+                              server, self.network.id)
+        else:
+            dns_servers = self.conf.dnsmasq_dns_servers
+
+        for server in dns_servers:
             cmd.append('--server=%s' % server)
 
         if self.conf.dns_domain:
@@ -569,8 +620,16 @@ class Dnsmasq(DhcpLocalProcess):
                 cmd.append('--log-dhcp')
                 cmd.append('--log-facility=%s' % log_filename)
 
+        edns_fingerprinting_enabled = self.conf.edns_client_fingerprint
+
+        if hasattr(self.network, 'dns_ednslogging_enabled'):
+            if not isinstance(self.network.dns_ednslogging_enabled, bool):
+                sval = str(self.network.dns_ednslogging_enabled).lower()
+                self.network.dns_ednslogging_enabled = sval in ('yes', 'true')
+            edns_fingerprinting_enabled = self.network.dns_ednslogging_enabled
+
         # fingerprint the client (network id + client IP)
-        if self.conf.edns_client_fingerprint:
+        if edns_fingerprinting_enabled:
             cmd.append('--add-cpe-id=%s' % self.network.id)
             if self._is_dnsmasq_umbrella_supported():
                 cmd.append('--umbrella')

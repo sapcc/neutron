@@ -14,9 +14,13 @@
 # limitations under the License.
 
 import copy
+from dataclasses import dataclass
+import ipaddress
 import itertools
 import operator
+import pathlib
 
+from keystoneauth1 import loading as ks_loading
 from neutron_lib.api.definitions import portbindings
 from neutron_lib.api import extensions
 from neutron_lib.callbacks import resources
@@ -26,11 +30,14 @@ from neutron_lib import exceptions
 from neutron_lib.exceptions import agent as agent_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins import utils as p_utils
+from openstack import connection
+from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_utils import excutils
+import yaml
 
 from neutron._i18n import _
 from neutron.common import utils
@@ -41,6 +48,351 @@ from neutron.quota import resource_registry
 
 
 LOG = logging.getLogger(__name__)
+
+_CUSTOM_NETWORK_CONFIGURATOR = None
+
+
+def get_custom_network_configurator():
+    global _CUSTOM_NETWORK_CONFIGURATOR
+    if _CUSTOM_NETWORK_CONFIGURATOR is None:
+        with lockutils.lock("CustomNetworkConfiguratorSingleton"):
+            if _CUSTOM_NETWORK_CONFIGURATOR is None:
+                _CUSTOM_NETWORK_CONFIGURATOR = CustomNetworkConfigurator()
+    return _CUSTOM_NETWORK_CONFIGURATOR
+
+
+class DomainLookupFailed(Exception):
+    pass
+
+
+class CustomNetworkConfigError(Exception):
+    pass
+
+
+@dataclass
+class CustomNetworkSettings:
+    dns_ednslogging_enabled: bool
+    dns_custom_upstreams: set[str] | None = None
+    ntp_servers: set[str] | None = None
+
+    def __post_init__(self):
+
+        if not isinstance(self.dns_ednslogging_enabled, bool):
+            raise TypeError(_("dns_ednslogging_enabled must be a bool: %s")
+                            % self.dns_ednslogging_enabled)
+
+        try:
+            self.dns_custom_upstreams = self._validate_ip_addresses(
+                self.dns_custom_upstreams)
+        except ValueError as e:
+            LOG.error("Invalid DNS server list: %s", e)
+            raise
+
+        try:
+            self.ntp_servers = self._validate_ip_addresses(
+                    self.ntp_servers)
+        except ValueError as e:
+            LOG.error("Invalid NTP server list: %s", e)
+            raise
+
+    @staticmethod
+    def _validate_ip_addresses(addresses: set[str] | None) -> set[str] | None:
+        """ensure that all elements are valid IP addresses and make it a
+        set of strings containing the normalized IP addresses.
+        """
+
+        if not addresses:
+            return None
+
+        validated: set[str] = set()
+        for item in addresses:
+            try:
+                addr = ipaddress.ip_address(item)
+                validated.add(addr.compressed)
+            except ValueError:
+                LOG.error("not a valid IP address: %s", item)
+                raise
+
+        return validated
+
+
+class CustomNetworkConfigurator:
+
+    def __init__(self):
+        self._KEYSTONE = None
+        self._domain_id_cache = {}
+        self._domain_name_cache = {}
+        self._net_config: dict[str, dict[str, CustomNetworkSettings]] = {}
+        self._config_file: str | None = cfg.CONF.customdns.config_file
+        self._load_config()
+
+    def _load_config(self):
+        """load or reload custom network configurations from file."""
+
+        if not self._config_file:
+            raise CustomNetworkConfigError(_("no config_file set but custom "
+                                             "network config requested"))
+
+        LOG.debug("loading custom network settings from '%s'",
+                  self._config_file)
+
+        try:
+            cfgfile = pathlib.Path(self._config_file)
+            config = yaml.load(cfgfile.read_bytes(), Loader=yaml.SafeLoader)
+        except IOError as e:
+            raise CustomNetworkConfigError(_("failed to load "
+                                             "config file '%s': %s")
+                                           % (self._config_file, e))
+        if not config:
+            msg = (_("failed to load config file '%s': empty file?")
+                   % self._config_file)
+            raise CustomNetworkConfigError(msg)
+
+        # Fail when the file is completely empty, this is most likely
+        # a misconfiguration...
+        try:
+            matches = config['matches']
+        except KeyError:
+            msg = (_("Missing 'matches:' in custom network settings "
+                     "configuration file '%s'") %
+                   self._config_file)
+            raise CustomNetworkConfigError(msg)
+
+        # ... but accept an intentionally empty list
+        if not matches:
+            return
+
+        net_config = {'projects': {}, 'domains': {}}
+
+        mandatory_keys = {'ednslogging', }
+        valid_keys = mandatory_keys | {
+                      'project_ids',
+                      'domain_name_prefixes',
+                      'upstream_dns_servers',
+                      'ntp_servers',
+                    }
+
+        for item in matches:
+            # Each match config consists of three (optional) items
+            # project_ids, domain_name_prefixes and upstream_dns_servers and
+            # one mandatory setting ednslogging.
+            # If project id _or_ domain prefix match, the upstream dns_servers
+            # and ednslogging setting will be applied to the network.
+
+            invalid_keys = item.keys() - valid_keys
+            if invalid_keys:
+                msg = (_("Invalid key(s) in config file '%s' at '%s': %s")
+                       % (self._config_file, item,
+                          ", ".join(list(invalid_keys))))
+                raise CustomNetworkConfigError(msg)
+
+            missing_keys = mandatory_keys - item.keys()
+            if missing_keys:
+                msg = (_("Missing key(s) in config file '%s' at '%s': %s")
+                       % (self._config_file, item,
+                          ", ".join(list(missing_keys))))
+                raise CustomNetworkConfigError(msg)
+
+            project_ids = item.get('project_ids', [])
+            domain_prefixes = item.get('domain_name_prefixes', [])
+            upstreams = item.get('upstream_dns_servers', [])
+            ntp_servers = item.get('ntp_servers', [])
+            ednslogging = item['ednslogging']
+
+            try:
+                netconfig = CustomNetworkSettings(
+                    dns_ednslogging_enabled=ednslogging,
+                    dns_custom_upstreams=set(upstreams),
+                    ntp_servers=set(ntp_servers),
+                )
+            except (TypeError, ValueError) as e:
+                msg = _("Error parsing custom DNS config: %s") % e
+                raise CustomNetworkConfigError(msg)
+
+            for project_id in project_ids:
+                if project_id in net_config['projects']:
+                    msg = _("project %s already configured!") % project_id
+                    raise CustomNetworkConfigError(msg)
+
+                net_config['projects'][project_id] = netconfig
+
+            for domain_prefix in domain_prefixes:
+                if domain_prefix in net_config['domains']:
+                    msg = (_("domain-prefix '%s' already configured!")
+                           % domain_prefix)
+                    raise CustomNetworkConfigError(msg)
+
+                net_config['domains'][domain_prefix] = netconfig
+
+        self._net_config = net_config
+
+    def add_custom_settings_to_net(self, network_dict):
+        """Add the custom settings specified in the external config file
+        to the network, if the network matches any of the criteria set in the
+        config file.
+        """
+
+        if not self._net_config:
+            return
+
+        # first check if we have a match in the project ids,
+        # this is the cheapest lookup
+        project_id = network_dict['project_id']
+
+        custom_config = self._net_config['projects'].get(project_id)
+        if custom_config:
+            LOG.debug("setting custom settings for net %s, "
+                      "project %s matches: %s",
+                      network_dict['id'], project_id, custom_config
+                      )
+        else:
+            # now try to match openstack domain name prefixes.
+            custom_config = self._find_domain_settings(network_dict)
+
+        if not custom_config:
+            return
+
+        network_dict['dns_ednslogging_enabled'] = (
+            custom_config.dns_ednslogging_enabled)
+
+        if custom_config.dns_custom_upstreams:
+            network_dict['dns_custom_upstreams'] = (
+                custom_config.dns_custom_upstreams)
+
+        if custom_config.ntp_servers:
+            network_dict['ntp_servers'] = (
+                custom_config.ntp_servers)
+
+    def _find_domain_settings(self, network_dict: dict) -> (
+            CustomNetworkSettings | None):
+        """lookup domain-specific Network settings (e.g., DNS) if they exist.
+        """
+
+        if not self._net_config:
+            return None
+
+        # try to retrieve the OpenStack domain name via the project id,
+        # this uses a local cache and on a cache miss queries keystone
+        project_id = network_dict['project_id']
+        domain_name = None
+        try:
+            domain_name = self.get_domain_name(project_id)
+        except Exception as e:  # noqa
+            # If Keystone is not reachable or something goes wrong with
+            # the lookup, we do not want to fail configuring all networks.
+            # Currently, the sane thing to do is using default settings in
+            # those cases. As we want to fail to the default in all error
+            # cases anyway, we can use a bare Exception here.
+            # TODO(mutax): I do want to get the stack trace logged, but I
+            #   also want to get a nice warning to the log independent of the
+            #   source of the error - but now we log the same error twice.
+            LOG.exception('Failed to get OpenStack domain of project %s '
+                          'while checking for custom settings for network %s -'
+                          '%s: %s',
+                          project_id, network_dict['id'], type(e), e
+                          )
+
+        # in case of an error or empty result, we fall back to the 'safe'
+        # side by using default settings.
+        if not domain_name:
+            LOG.warning('Unable to retrieve domain name for project %s,'
+                        ' falling back to default settings for network %s',
+                        project_id, network_dict['id'])
+            return None
+
+        # check if the OpenStack domain name starts with one of the prefixes
+        # from our config (or is equal).
+        # we are now doing a longest prefix match, allowing defaults to be set
+        # i.e. abc- can provide settings for all domains starting with abc,
+        # while at the same time abc-123 can be used to match a specific one
+
+        for domain_prefix in sorted(self._net_config['domains'].keys(),
+                                    key=len,
+                                    reverse=True):
+
+            if domain_name.startswith(domain_prefix):
+                custom_config = self._net_config['domains'][domain_prefix]
+
+                LOG.debug("setting custom settings for net %s, "
+                          "domain %s matches prefix %s: %s",
+                          network_dict['id'], domain_name,
+                          domain_prefix, custom_config
+                          )
+
+                return custom_config
+
+        return None
+
+    @property
+    def _keystone_connection(self):
+        auth_section = 'nova'  # name of the section in the config file
+        # TODO(mutax): trying to use the section 'keystone_authtoken'
+        #  throws an exception because it misses a timeout setting in
+        #  the section, but nova also misses it? makes no sense, needs
+        #  investigation
+        #  Would be nice to not use the nova service user for that...
+
+        if not self._KEYSTONE:
+            # this needs to be a Singleton, so we do not pile up sockets
+            LOG.debug("domainlookup: creating new connection to keystone")
+            auth = ks_loading.load_auth_from_conf_options(
+                    cfg.CONF, auth_section)
+            keystone_session = ks_loading.load_session_from_conf_options(
+                    cfg.CONF, auth_section, auth=auth)
+            self._KEYSTONE = connection.Connection(
+                    session=keystone_session,
+                    connect_retries=cfg.CONF.http_retries,
+                    service_types={'identity'},
+                    strict_proxies=True,
+                    identity_interface='internal')
+
+        return self._KEYSTONE.identity
+
+    def get_domain_name(self, project_id: str) -> str:
+        """query keystone to get the name of the domain that
+        the project belongs to. Will cache both the project_id to
+        domain_id mapping and the domain_id to domain_name mapping.
+        """
+        # this is inspired by code taken from
+        # class ProjectIdMiddleware in api/extensions.py
+
+        if not project_id:
+            raise ValueError(_("No project_id provided!"))
+
+        domain_id = self._domain_id_cache.get(project_id)
+
+        if not domain_id:
+            LOG.debug("domainlookup: project %s not in cache",
+                      project_id)
+            project = self._keystone_connection.get_project(project_id)
+
+            if not project:
+                msg = f"Unable to find project {project_id}"
+                raise DomainLookupFailed(msg)
+
+            domain_id = project.domain_id
+            if not domain_id:
+                msg = (f"Project {project_id} has an"
+                       f"invalid (empty) domain id: '{domain_id}'")
+                raise DomainLookupFailed(msg)
+
+            self._domain_id_cache[project_id] = domain_id
+
+        domain_name = self._domain_name_cache.get(domain_id)
+
+        if not domain_name:
+            LOG.debug("domainlookup: domain %s for project %s not in cache",
+                      domain_id, project_id)
+            domain = self._keystone_connection.get_domain(domain_id)
+
+            if not domain:
+                msg = f"Domain {domain_id} for project {project_id} not found"
+                raise DomainLookupFailed(msg)
+
+            domain_name = domain.name
+            self._domain_name_cache[domain_id] = domain_name
+
+        return domain_name
 
 
 class DhcpRpcCallback:
@@ -81,6 +433,14 @@ class DhcpRpcCallback:
     target = oslo_messaging.Target(
         namespace=constants.RPC_NAMESPACE_DHCP_PLUGIN,
         version='1.10')
+
+    def __init__(self):
+        super().__init__()
+        if cfg.CONF.customdns.enabled:
+            # load config as early as possible to notice issues
+            self._config_lookup = get_custom_network_configurator()
+        else:
+            self._config_lookup = None
 
     def _get_active_networks(self, context, **kwargs):
         """Retrieve and return a list of the active networks."""
@@ -248,6 +608,10 @@ class DhcpRpcCallback:
                'mtu': network.mtu}
         if network_segments:
             ret['segments'] = network_segments
+
+        if self._config_lookup:
+            self._config_lookup.add_custom_settings_to_net(ret)
+
         return ret
 
     @db_api.retry_db_errors

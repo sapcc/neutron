@@ -1686,7 +1686,146 @@ class TestDnsmasq(TestBase):
                           '--add-cpe-id=%s' % network.id],
                          network=network)
 
-    def test_spawn_cfg_enable_dnsmasq_log(self):
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_edns_umbrella_override_per_network_notset(self, _mock):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+
+        # do not fail building a cmdline when attribute is missing
+        self.assertFalse(hasattr(network, 'dns_ednslogging_enabled'))
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          '--add-cpe-id=%s' % network.id,
+                          '--umbrella'],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_edns_umbrella_override_per_network_true(self, _mock):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+
+        network.dns_ednslogging_enabled = True
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          '--add-cpe-id=%s' % network.id,
+                          '--umbrella'],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_edns_umbrella_override_per_network_false(self, _mock):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+
+        network.dns_ednslogging_enabled = False
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_dns_upstreams_override_per_network_notset(self):
+        network = FakeDualNetwork()
+        self.assertFalse(hasattr(network, 'dns_custom_upstreams'))
+        # do not fail building a cmdline when attribute is missing
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_dns_upstreams_override_per_network_set(self):
+        network = FakeDualNetwork()
+        network.dns_custom_upstreams = ['1.1.1.1', '8.8.8.8']
+        self._test_spawn(['--conf-file=',
+                          '--server=1.1.1.1', '--server=8.8.8.8',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_dns_upstreams_do_override_config(self):
+        self.conf.set_override('dnsmasq_local_resolv', True)
+        self.conf.set_override('dnsmasq_dns_servers', ['9.9.9.9'])
+        network = FakeDualNetwork()
+        network.dns_custom_upstreams = ['1.1.1.1', '8.8.8.8']
+
+        self._test_spawn(['--conf-file=',
+                          '--server=1.1.1.1', '--server=8.8.8.8',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_not_configured(self):
+        """ensure we still start up when no ntp servers are set in our
+        configuration and that no dhcp option is added.
+        """
+
+        network = FakeDualNetwork()
+
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_default_from_config(self):
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '192.0.2.4'])
+        network = FakeDualNetwork()
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.3,192.0.2.4',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_override_config(self):
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '192.0.2.4'])
+        network = FakeDualNetwork()
+        network.ntp_servers = ['192.0.2.1', '192.0.2.2']
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.1,192.0.2.2',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_ignore_ipv6_config(self):
+        """ensure we skip IPv6 addresses for dhcp option 42
+        from our default settings,
+        it only supports IPv4 addresses:
+        https://datatracker.ietf.org/doc/html/rfc2132#section-8.3
+        """
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '::1'])
+        network = FakeDualNetwork()
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.3',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_ignore_ipv6_rpc(self):
+        """ensure we skip IPv6 addresses for dhcp option 42
+        received via network config from the rpc server,
+        it only supports IPv4 addresses:
+        https://datatracker.ietf.org/doc/html/rfc2132#section-8.3
+        """
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '::1'])
+        network = FakeDualNetwork()
+        network.ntp_servers = ['192.0.2.1', '::1']
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.1',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_enable_dnsmasq_log(self, _mock):
         self.conf.set_override('dnsmasq_base_log_dir', '/tmp')
         network = FakeV4Network()
         dhcp_dns_log = \
