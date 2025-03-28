@@ -46,6 +46,7 @@ from neutron import worker as neutron_worker
 
 service.register_service_opts(service.SERVICE_OPTS)
 service.register_service_opts(service.RPC_EXTRA_OPTS)
+service.register_dns_opts(service.DNSSETTINGS_OPTS)
 
 LOG = logging.getLogger(__name__)
 
