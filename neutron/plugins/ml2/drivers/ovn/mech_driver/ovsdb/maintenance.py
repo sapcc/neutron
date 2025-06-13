@@ -898,7 +898,7 @@ class DBInconsistenciesPeriodics(SchemaAwarePeriodicsBase):
         with self._nb_idl.transaction(check_error=True) as txn:
             for port in ports:
                 lsp = self._nb_idl.lsp_get(port['id']).execute(
-                    check_error=True)
+                    log_errors=False)
                 if not lsp:
                     continue
 
@@ -991,6 +991,9 @@ class DBInconsistenciesPeriodics(SchemaAwarePeriodicsBase):
         cmds = []
         context = n_context.get_admin_context()
         for router in self._ovn_client._l3_plugin.get_routers(context):
+            if not router.get('external_gateways'):
+                # No external gateways - ovn l3 plugin is not used
+                raise periodics.NeverAgain()
             ext_gw_networks = [
                 ext_gw['network_id'] for ext_gw in router['external_gateways']]
             rtr_name = 'neutron-{}'.format(router['id'])
