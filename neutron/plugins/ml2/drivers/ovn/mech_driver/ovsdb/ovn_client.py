@@ -2064,7 +2064,10 @@ class OVNClient(object):
                 ','.join(common_utils.get_az_hints(network)),
             # NOTE(ralonsoh): it is not considered the case of multiple
             # segments.
-            ovn_const.OVN_NETTYPE_EXT_ID_KEY: network.get(pnet.NETWORK_TYPE),
+            # SCI: hardcoding TYPE_VLAN for every network, thus enabling local
+            # gateway termination via VLAN tagging.
+            ovn_const.OVN_NETTYPE_EXT_ID_KEY: network.get(pnet.NETWORK_TYPE,
+                                                          const.TYPE_VLAN),
         }}
 
         # Enable IGMP snooping if igmp_snooping_enable is enabled in Neutron

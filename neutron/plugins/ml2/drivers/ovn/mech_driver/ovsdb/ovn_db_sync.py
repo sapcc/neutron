@@ -76,10 +76,11 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
         self.mode = mode
         self.l3_plugin = directory.get_plugin(plugin_constants.L3)
         self.pf_plugin = directory.get_plugin(plugin_constants.PORTFORWARDING)
-        if not self.pf_plugin:
-            self.pf_plugin = (
-                manager.NeutronManager.load_class_for_provider(
-                    'neutron.service_plugins', 'port_forwarding')())
+        # SCI: only needed for ovn l3 plugin
+        # if not self.pf_plugin:
+        #     self.pf_plugin = (
+        #         manager.NeutronManager.load_class_for_provider(
+        #             'neutron.service_plugins', 'port_forwarding')())
         self._ovn_client = ovn_client.OVNClient(ovn_api, sb_ovn)
         self.segments_plugin = directory.get_plugin('segments')
         if not self.segments_plugin:
@@ -1071,8 +1072,7 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
                                                 'lswitch': lswitch['name']})
                 db_network = db_networks[lswitch['name']]
                 db_segments = self.segments_plugin.get_segments(
-                    ctx, filters={'network_id': [db_network['id']],
-                                  'is_dynamic': False})
+                    ctx, filters={'network_id': [db_network['id']]})
                 segments_provnet_port_names = []
                 for db_segment in db_segments:
                     physnet = db_segment.get(segment_def.PHYSICAL_NETWORK)
@@ -1269,6 +1269,11 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
 
     def sync_fip_qos_policies(self, ctx):
         """Sync floating IP QoS policies."""
+        if not utils.is_ovn_l3(self.l3_plugin):
+            LOG.debug("OVN L3 mode is disabled, skipping "
+                      "floating IP QoS policies")
+            return
+
         LOG.debug('OVN-NB Sync Floating IP QoS policies started @ %s',
                   str(datetime.now()))
         ovn_qos_ext = ovn_qos.OVNClientQosExtension(nb_idl=self.ovn_api)
