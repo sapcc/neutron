@@ -1174,7 +1174,7 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
                             "but not in Neutron network_id=%(net)s "
                             "port_name=%(lport)s",
                             {'net': network,
-                             'seg': lport})
+                             'lport': lport})
                 if self.mode == SYNC_MODE_REPAIR:
                     LOG.warning('Deleting provider network port %s from '
                                 'OVN NB DB', lport)
