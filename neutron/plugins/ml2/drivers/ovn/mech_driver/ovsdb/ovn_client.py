@@ -563,7 +563,7 @@ class OVNClient(object):
             ovn_const.OVN_SG_IDS_EXT_ID_KEY: port_info.security_group_ids,
             ovn_const.OVN_REV_NUM_EXT_ID_KEY: str(utils.get_revision_number(
                 port, ovn_const.TYPE_PORTS)),
-            ovn_const.OVN_PORT_VNIC_TYPE_KEY: port_info.vnic_type,
+            ovn_const.OVN_PORT_VNIC_TYPE_KEY: port_info.vnic_type or '',
             ovn_const.OVN_PORT_BP_CAPABILITIES_KEY:
                 ';'.join(port_info.capabilities),
             ovn_const.OVN_NETWORK_MTU_EXT_ID_KEY: port_info.mtu,
