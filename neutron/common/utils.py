@@ -17,8 +17,8 @@
 # when needed.
 
 """Utilities and helper functions."""
+import datetime
 import functools
-from collections import abc
 import hashlib
 import hmac
 import importlib
@@ -32,7 +32,6 @@ import sys
 import threading
 import time
 import uuid
-import weakref
 
 import eventlet
 from eventlet.green import subprocess
@@ -966,16 +965,15 @@ def timecost(f):
 
 
 class SingletonDecorator:
-    _singleton_instances = weakref.WeakValueDictionary()
 
     def __init__(self, klass):
         self._klass = klass
+        self._instance = None
 
     def __call__(self, *args, **kwargs):
-        if self._klass not in self._singleton_instances:
-            _inst = self._klass(*args, **kwargs)
-            self._singleton_instances[self._klass] = _inst
-        return self._singleton_instances[self._klass]
+        if self._instance is None:
+            self._instance = self._klass(*args, **kwargs)
+        return self._instance
 
 
 def with_metaclass(meta, *bases):
@@ -1120,8 +1118,6 @@ def read_file(path: str) -> str:
         return ''
 
 
-def is_iterable_not_string(value):
-    """Return if a value is iterable but not a string type"""
-    return (isinstance(value, abc.Iterable) and
-            not isinstance(value, abc.ByteString) and
-            not isinstance(value, str))
+def ts_to_datetime(timestamp):
+    """Converts timestamp (in seconds) to datetime"""
+    return datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)

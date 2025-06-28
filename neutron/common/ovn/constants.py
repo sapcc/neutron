@@ -57,7 +57,6 @@ METADATA_LIVENESS_CHECK_EXT_ID_KEY = 'neutron:metadata_liveness_check_at'
 OVN_PORT_BINDING_PROFILE = portbindings.PROFILE
 OVN_HOST_ID_EXT_ID_KEY = 'neutron:host_id'
 OVN_FIP_DISTRIBUTED_KEY = 'neutron:fip-distributed'
-OVN_ADDRESS_GROUP_ID_KEY = 'neutron:address_group_id'
 
 MIGRATING_ATTR = 'migrating_to'
 OVN_ROUTER_PORT_OPTION_KEYS = ['router-port', 'nat-addresses',
@@ -96,11 +95,6 @@ OVN_NEUTRON_AGENT = 'OVN Neutron agent'
 OVN_CONTROLLER_TYPES = (OVN_CONTROLLER_AGENT,
                         OVN_CONTROLLER_GW_AGENT,
                         )
-OVN_AGENT_TYPES = (OVN_CONTROLLER_AGENT,
-                   OVN_CONTROLLER_GW_AGENT,
-                   OVN_METADATA_AGENT,
-                   OVN_NEUTRON_AGENT,
-                   )
 
 # OVN ACLs have priorities.  The highest priority ACL that matches is the one
 # that takes effect.  Our choice of priority numbers is arbitrary, but it
@@ -259,7 +253,7 @@ INITIAL_REV_NUM = -1
 
 ACL_EXPECTED_COLUMNS_NBDB = (
     'external_ids', 'direction', 'log', 'priority',
-    'name', 'action', 'severity', 'match', 'meter')
+    'name', 'action', 'severity', 'match')
 
 # Resource types
 TYPE_NETWORKS = 'networks'
@@ -270,7 +264,6 @@ TYPE_ROUTER_PORTS = 'router_ports'
 TYPE_SECURITY_GROUPS = 'security_groups'
 TYPE_FLOATINGIPS = 'floatingips'
 TYPE_SUBNETS = 'subnets'
-TYPE_ADDRESS_GROUPS = 'address_groups'
 
 _TYPES_PRIORITY_ORDER = (
     TYPE_NETWORKS,
@@ -280,7 +273,6 @@ _TYPES_PRIORITY_ORDER = (
     TYPE_PORTS,
     TYPE_ROUTER_PORTS,
     TYPE_FLOATINGIPS,
-    TYPE_ADDRESS_GROUPS,
     TYPE_SECURITY_GROUP_RULES)
 
 DB_CONSISTENCY_CHECK_INTERVAL = 300  # 5 minutes
