@@ -17,6 +17,7 @@ import collections
 from concurrent import futures
 import functools
 import os
+from pathlib import Path
 import signal
 import threading
 import time
@@ -30,6 +31,7 @@ from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
 import oslo_messaging
+from oslo_serialization import jsonutils
 # NOTE(ralonsoh): [eventlet-removal] change back to
 # ``oslo_service.loopingcall`` when the removal is completed.
 from oslo_service.backend._threading import loopingcall
@@ -37,6 +39,7 @@ from oslo_utils import fileutils
 from oslo_utils import importutils
 from oslo_utils import netutils
 from oslo_utils import timeutils
+from pyroute2 import netns
 
 from neutron._i18n import _
 from neutron.agent.common import base_agent_rpc
@@ -58,6 +61,8 @@ DELETED_PORT_MAX_AGE = 86400
 
 DHCP_READY_PORTS_SYNC_MAX = 64
 
+AGENT_STATUS_FILE = "/var/run/dhcp-agent-status.json"
+
 
 def _sync_lock(f):
     """Decorator to block all operations for a global sync call."""
@@ -75,6 +80,68 @@ def _wait_if_syncing(f):
         with _SYNC_STATE_LOCK:
             return f(*args, **kwargs)
     return wrapped
+
+
+def _remove_status_file():
+    path = Path(AGENT_STATUS_FILE)
+    path.unlink()
+    LOG.info("Agent status file %s removed", AGENT_STATUS_FILE)
+
+
+def _find_missing_netns(active_networks):
+    ns = Path(netns.NETNS_RUN_DIR)
+    active_ns = set()
+    synced_nets = set()
+
+    for net in active_networks:
+        # admin_state_up is a boolean
+        if any(s for s in net.subnets if s.enable_dhcp) and net.admin_state_up:
+            active_ns.add(net.namespace)
+
+    for net in ns.iterdir():
+        if net.name.startswith('qdhcp-'):
+            synced_nets.add(net.name)
+
+    return active_ns - synced_nets
+
+
+def _create_status_file(ready, message):
+    path = Path(AGENT_STATUS_FILE)
+    try:
+        path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    except OSError:
+        LOG.error('Failed to create directory %s', path.parent)
+        return
+
+    status = {
+        "time": time.time(),
+        "ready": ready,
+        "message": message,
+    }
+
+    try:
+        with open(path, "w") as status_file:
+            jsonutils.dump(status, status_file)
+    except OSError:
+        LOG.error('Failed to write status file %s', path)
+
+
+def _write_status_failure(error):
+    _create_status_file(False, str(error))
+
+
+def _write_sync_status(active_networks):
+    missing_netns = _find_missing_netns(active_networks)
+
+    if missing_netns:
+        ready = False
+        message = (f"Missing {len(missing_netns)} of {len(active_networks)} "
+                   f"networks - {', '.join(sorted(missing_netns)[:5])}")
+    else:
+        ready = True
+        message = "All networks synced"
+
+    _create_status_file(ready, message)
 
 
 class DHCPResourceUpdate(queue.ResourceUpdate):
@@ -164,6 +231,7 @@ class DhcpAgent(manager.Manager):
         self.plugin_rpc = DhcpPluginApi(topics.PLUGIN, self.conf.host)
         self.dhcp_version = self.dhcp_driver_cls.check_version()
         self._populate_networks_cache()
+        _create_status_file(False, "DHCP agent starting")
         self.sync_state()
 
     def _populate_networks_cache(self):
@@ -377,7 +445,7 @@ class DhcpAgent(manager.Manager):
             # was down
             self.dhcp_ready_ports |= set(self.cache.get_port_ids(only_nets))
             LOG.info('Synchronizing state complete')
-
+            _write_sync_status(active_networks)
         except Exception as e:
             if only_nets:
                 for network_id in only_nets:
@@ -385,6 +453,7 @@ class DhcpAgent(manager.Manager):
             else:
                 self.schedule_resync(e)
             LOG.exception('Unable to sync network state.')
+            _write_status_failure(e)
 
     def _dhcp_ready_ports_loop(self):
         """Notifies the server of any ports that had reservations setup."""
@@ -888,6 +957,10 @@ class DhcpAgent(manager.Manager):
         if is_router_id:
             del self._metadata_routers[network.id]
 
+    def stop(self):
+        super().stop()
+        _remove_status_file()
+
 
 class DhcpPluginApi(base_agent_rpc.BasePluginApi):
     """Agent side of the dhcp rpc API.
@@ -1192,3 +1265,6 @@ class DhcpAgentWithStateReport(DhcpAgent):
 
     def after_start(self):
         LOG.info("DHCP agent started")
+
+    def stop(self):
+        super().stop()
