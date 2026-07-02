@@ -131,6 +131,9 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
                        upstream_dns_servers:
                         - 192.0.2.10
                         - 192.0.2.20
+                       ntp_servers:
+                        - 192.0.2.100
+                        - 192.0.2.101
                     -  domain_name_prefixes:
                         - ext-abcd
                         - ext-
@@ -138,6 +141,9 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
                        upstream_dns_servers:
                         - 192.0.2.30
                         - 192.0.2.40
+                       ntp_servers:
+                        - 192.0.2.102
+                        - 192.0.2.103
                 """
 
         cnc = self._get_cnc_from_yaml_config(configdata=example_config)
@@ -145,9 +151,15 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
         # CustomNetworkSettings will convert the list of IPs to a set
         # so we can compare them with ease below.
         config_1 = CustomNetworkSettings(
-                False, {'192.0.2.10', '192.0.2.20'})
+                dns_ednslogging_enabled=False,
+                dns_custom_upstreams={'192.0.2.10', '192.0.2.20'},
+                ntp_servers={'192.0.2.100', '192.0.2.101'},
+        )
         config_2 = CustomNetworkSettings(
-                True, {'192.0.2.30', '192.0.2.40'})
+                dns_ednslogging_enabled=True,
+                dns_custom_upstreams={'192.0.2.30', '192.0.2.40'},
+                ntp_servers={'192.0.2.102', '192.0.2.103'}
+        )
 
         example_config_expected = {
             'domains': {'ext-': config_2,
@@ -330,6 +342,44 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
         self.assertIsNotNone(upstreams)
         self.assertIn(dns1, upstreams)
         self.assertIn(dns2, upstreams)
+        self.assertEqual(len(upstreams), 2)
+
+    @mock.patch.object(CustomNetworkConfigurator, "_keystone_connection")
+    def test_ntpserver_settings_yaml(self, mock_keystone):
+        """ensure the configured NTP server IPs are present in the network
+           dict returned
+        """
+
+        # we manipulate the network, so we need fresh mock objects
+        mock_network = {'id': 'net-123', 'project_id': 'p-666'}
+        mock_project = MockedDBObj(id='p-666', domain_id='d-42')
+        mock_domain = MockedDBObj(id='d-42', name='mydomain')
+
+        mock_keystone.get_project.return_value = mock_project
+        mock_keystone.get_domain.return_value = mock_domain
+
+        ntp1 = "2001:db8::456"
+        ntp2 = "192.0.2.123"
+
+        example_config = b"""
+                       matches:
+                           -  domain_name_prefixes:
+                               - mydomain
+                              ntp_servers:
+                               - %s
+                               - %s
+                              ednslogging: False
+                       """ % (ntp1.encode(), ntp2.encode())
+
+        cnc = self._get_cnc_from_yaml_config(configdata=example_config)
+
+        cnc.add_dnssettings_to_net(mock_network)
+        sentinel = object()
+        upstreams = mock_network.get('ntp_servers', sentinel)
+        self.assertNotEqual(sentinel, upstreams)
+        self.assertIsNotNone(upstreams)
+        self.assertIn(ntp1, upstreams)
+        self.assertIn(ntp2, upstreams)
         self.assertEqual(len(upstreams), 2)
 
     @mock.patch.object(CustomNetworkConfigurator, "_keystone_connection")

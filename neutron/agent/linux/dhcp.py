@@ -569,6 +569,40 @@ class Dnsmasq(DhcpLocalProcess):
         cmd.append('--conf-file=%s' %
                    (self.conf.dnsmasq_config_file.strip() or '/dev/null'))
 
+        # check if the network has custom NTP servers set
+        if hasattr(self.network, 'ntp_servers'):
+            # Do some input validation on the data we got via rpc call, to
+            # avoid dnsmasq not starting. Should not
+            # happen as we are doing validation on the server side as well.
+            ntp_servers = self.network.ntp_servers
+        else:
+            # fallback to the configuration defaults (if set)
+            ntp_servers = self.conf.dnsmasq_ntp_servers
+
+        if ntp_servers:
+            # only if we have ntp servers, append the option.
+            # note that if the option is present in the config file, the config
+            # file wile take precedence!
+            servers = []
+            for server in ntp_servers:
+                try:
+                    address = ipaddress.ip_address(server)
+                    if address.version == 4:
+                        servers.append(address.compressed)
+                    else:
+                        LOG.error('Invalid NTP server "%s" for network %s'
+                                  ' DHCP option 42 only supports IPv4',
+                                  server, self.network.id)
+                except ValueError:
+                    LOG.error('Invalid NTP server "%s" for network %s',
+                              server, self.network.id)
+
+            servers = ",".join(servers)
+            LOG.debug("Adding NTP servers %s for network %s",
+                      servers,
+                      self.network.id)
+            cmd.append(f'--dhcp-option=42,{servers}')
+
         # if the network has custom upstreams set, we will use them instead
         if hasattr(self.network, 'dns_custom_upstreams'):
             # Do some input validation on the data we got via rpc call, to

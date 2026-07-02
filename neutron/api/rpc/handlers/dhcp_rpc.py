@@ -73,32 +73,47 @@ class CustomNetworkConfigError(Exception):
 class CustomNetworkSettings:
     dns_ednslogging_enabled: bool
     dns_custom_upstreams: set[str] | None = None
+    ntp_servers: set[str] | None = None
 
     def __post_init__(self):
         if not isinstance(self.dns_ednslogging_enabled, bool):
             raise TypeError(_("dns_ednslogging_enabled must be a bool: %s")
                             % self.dns_ednslogging_enabled)
-        if self.dns_custom_upstreams:
-            self._validate_upstreams()
 
-    def _validate_upstreams(self):
+        if self.dns_custom_upstreams:
+            try:
+                self.dns_custom_upstreams = self._validate_as_ip_adresslist(
+                        self.dns_custom_upstreams)
+            except ValueError as e:
+                LOG.error("Invalid DNS server list: %s", e)
+                raise
+
+        if self.ntp_servers:
+            try:
+                self.ntp_servers = self._validate_as_ip_adresslist(
+                        self.ntp_servers)
+            except ValueError as e:
+                LOG.error("Invalid NTP server list: %s", e)
+                raise
+
+    @staticmethod
+    def _validate_as_ip_adresslist(adresslist: set[str] | None) -> set[str]:
         """ensure that all elements are valid IP addresses and make it a
         set of strings containing the normalized IP addresses.
         """
-        if not self.dns_custom_upstreams:
-            self.dns_custom_upstreams = set()
-            return
+        if not adresslist:
+            return set()
 
         addrs: set[str] = set()
-        for item in self.dns_custom_upstreams:
+        for item in adresslist:
             try:
                 addr = ipaddress.ip_address(item)
                 addrs.add(addr.compressed)
             except ValueError:
-                LOG.error("not a valid IP for DNS entry: %s", item)
+                LOG.error("not a valid IP address: %s", item)
                 raise
 
-        self.dns_custom_upstreams = addrs
+        return addrs
 
 
 class CustomNetworkConfigurator:
@@ -150,7 +165,8 @@ class CustomNetworkConfigurator:
         valid_keys = mandatory_keys | {
                       'project_ids',
                       'domain_name_prefixes',
-                      'upstream_dns_servers'
+                      'upstream_dns_servers',
+                      'ntp_servers',
                     }
 
         for item in matches:
@@ -177,12 +193,14 @@ class CustomNetworkConfigurator:
             project_ids = item.get('project_ids', [])
             domain_prefixes = item.get('domain_name_prefixes', [])
             upstreams = item.get('upstream_dns_servers', [])
+            ntp_servers = item.get('ntp_servers', [])
             ednslogging = item['ednslogging']
 
             try:
                 netconfig = CustomNetworkSettings(
                     dns_ednslogging_enabled=ednslogging,
                     dns_custom_upstreams=set(upstreams),
+                    ntp_servers=set(ntp_servers),
                 )
             except (TypeError, ValueError) as e:
                 msg = _("Error parsing custom DNS config: %s") % e
@@ -231,21 +249,6 @@ class CustomNetworkConfigurator:
 
         # first check if we have a match in the project ids,
         # this is the cheapest lookup
-        if self._apply_project_settings(network_dict):
-            return
-
-        # next try to match openstack domain name prefixes.
-        self._apply_domain_settings(network_dict)
-
-    def _apply_project_settings(self, network_dict: dict) -> bool:
-        """apply project-specific DNS settings if they exist.
-        Returns True if settings were found to allow skipping of
-        further processing. Not to be called directly.
-        """
-
-        if not self._dns_config:
-            return False
-
         project_id = network_dict['project_id']
 
         # check if the project-id matches the list for custom settings
@@ -255,25 +258,33 @@ class CustomNetworkConfigurator:
                       "project %s matches: %s",
                       network_dict['id'], project_id, custom_config
                       )
+        else:
+            # next try to match openstack domain name prefixes.
+            custom_config = self._find_domain_settings(network_dict)
 
-            network_dict['dns_ednslogging_enabled'] = (
-                custom_config.dns_ednslogging_enabled)
+        if not custom_config:
+            return
 
-            if custom_config.dns_custom_upstreams:
-                network_dict['dns_custom_upstreams'] = (
-                    custom_config.dns_custom_upstreams)
-            return True
+        network_dict['dns_ednslogging_enabled'] = (
+            custom_config.dns_ednslogging_enabled)
 
-        return False
+        if custom_config.dns_custom_upstreams:
+            network_dict['dns_custom_upstreams'] = (
+                custom_config.dns_custom_upstreams)
 
-    def _apply_domain_settings(self, network_dict: dict) -> bool:
+        if custom_config.ntp_servers:
+            network_dict['ntp_servers'] = (
+                custom_config.ntp_servers)
+
+    def _find_domain_settings(self, network_dict: dict) -> (
+            CustomNetworkSettings | None):
         """apply domain-specific DNS settings if they exist.
         Returns True if settings were found to allow skipping of
         further processing for consistency. Not to be called directly.
         """
 
         if not self._dns_config:
-            return False
+            return None
 
         # try to retrieve the OpenStack domain name via the project id,
         # this uses a local cache and on a cache miss queries keystone
@@ -301,7 +312,7 @@ class CustomNetworkConfigurator:
             LOG.warning('Unable to retrieve domain name for project %s,'
                         ' falling back to default settings for network %s',
                         project_id, network_dict['id'])
-            return False
+            return None
 
         # check if the OpenStack domain name starts with one of the prefixes
         # from our config (or is equal).
@@ -322,14 +333,8 @@ class CustomNetworkConfigurator:
                           domain_prefix, custom_config
                           )
 
-                network_dict['dns_ednslogging_enabled'] = (
-                    custom_config.dns_ednslogging_enabled)
-
-                if custom_config.dns_custom_upstreams:
-                    network_dict['dns_custom_upstreams'] = (
-                        custom_config.dns_custom_upstreams)
-                return True
-        return False
+                return custom_config
+        return None
 
     def _add_legacy_dnssettings_to_net(self, network_dict):
         """If the network domain or project match the configured list,
