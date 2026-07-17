@@ -156,12 +156,37 @@ DHCP_AGENT_STATE_OPTS = [
                      "on this dhcp-agent."),
 ]
 
+SCI_OPTS = [
+    cfg.BoolOpt('dnstap_enabled', default=False,
+                help=_("When unbound is used, enable dnstap query logging to "
+                       "unix socket on the host.")),
+    cfg.StrOpt('dnstap_socket', default='/run/dnstap/dnstap.sock',
+               help=_("Path to unix domain socket to send dnstap logs of "
+                      "DNS queries and responses.")),
+    cfg.StrOpt('dnstap_suffix',
+               help=_("optional suffix to append to dnstap-identity: "
+                      "<net.id>.<project.id>.<agent>.<suffix>")),
+    cfg.StrOpt('unbound_config_file',
+               default='/etc/neutron/unbound_common.conf',
+               help=_('Base unbound config included in unbound config in all '
+                      'namespaces.')),
+    cfg.StrOpt('unbound_controldir',
+               help=_("Directory for unbound control sockets. Defaults to "
+                      "namespace config directory. Use to share sockets "
+                      "between containers, e.g., with metrics exporter.")),
+    cfg.StrOpt('unbound_logdir', default='',
+               help=_("Directory to write per-namespace unbound logfiles.")),
+    cfg.IntOpt('unbound_rpz_ttl', default=5,
+               help=_('TTL for DNS records of local network.')),
+]
+
 
 def register_agent_dhcp_opts(cfg=cfg.CONF):
     cfg.register_opts(DHCP_AGENT_STATE_OPTS, 'AGENT')
     cfg.register_opts(DHCP_AGENT_OPTS)
     cfg.register_opts(DHCP_OPTS)
     cfg.register_opts(DNSMASQ_OPTS)
+    cfg.register_opts(SCI_OPTS, 'SCI')
     cfg.register_opts(common.DHCP_PROTOCOL_OPTS)
     meta_conf.register_meta_conf_opts(meta_conf.METADATA_RATE_LIMITING_OPTS,
                                       cfg=cfg,
