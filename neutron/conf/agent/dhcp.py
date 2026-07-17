@@ -36,8 +36,9 @@ DHCP_AGENT_OPTS = [
                       "events. Otherwise the resync may end up in a "
                       "busy-loop. The value must be less than "
                       "resync_interval.")),
+    # FIXME(mutax): reset for prod: default='neutron.agent.linux.dhcp.Dnsmasq',
     cfg.StrOpt('dhcp_driver',
-               default='neutron.agent.linux.dhcp.Dnsmasq',
+               default='neutron.agent.linux.dhcp_sci.UnboundDnsmasq',
                help=_("The driver used to manage the DHCP server.")),
     cfg.BoolOpt('enable_isolated_metadata', default=False,
                 help=_("The DHCP server can assist with providing metadata "
@@ -156,12 +157,37 @@ DHCP_AGENT_STATE_OPTS = [
                      "on this dhcp-agent."),
 ]
 
+SCI_OPTS = [
+    cfg.BoolOpt('dnstap_enabled', default=False,
+                help=_("When unbound is used, enable dnstap query logging to "
+                       "unix socket on the host.")),
+    cfg.StrOpt('dnstap_socket', default='/run/dnstap/dnstap.sock',
+               help=_("Path to unix domain socket to send dnstap logs of "
+                      "DNS queries and responses.")),
+    # FIXME(mutax): remove default for prod, make mandatory:
+    cfg.StrOpt('dnstap_suffix', default="dnstap.cc.qa-de-1.cloud.sap",
+               help=_("suffix to append to form dnstap-identity:"
+                      "<net.id>.<project.id>.<agent>.<suffix>")),
+    cfg.StrOpt('unbound_config_file',
+               # FIXME(mutax): add this default for prod:
+               #  (we cannot write to /etc/neutron in the qa test deploy image)
+               # default='/etc/neutron/unbound.conf',
+               default='/usr/share/neutron/unbound.conf',
+               help=_('Override the default unbound settings '
+                      'with this file.')),
+    cfg.StrOpt('unbound_logdir', default='',
+               help=_("Directory to write per-namespace unbound logfiles.")),
+    cfg.IntOpt('unbound_rpz_ttl', default=5,
+               help=_('TTL for DNS records of local network.')),
+]
+
 
 def register_agent_dhcp_opts(cfg=cfg.CONF):
     cfg.register_opts(DHCP_AGENT_STATE_OPTS, 'AGENT')
     cfg.register_opts(DHCP_AGENT_OPTS)
     cfg.register_opts(DHCP_OPTS)
     cfg.register_opts(DNSMASQ_OPTS)
+    cfg.register_opts(SCI_OPTS, 'SCI')
     cfg.register_opts(common.DHCP_PROTOCOL_OPTS)
     meta_conf.register_meta_conf_opts(meta_conf.METADATA_RATE_LIMITING_OPTS,
                                       cfg=cfg,
