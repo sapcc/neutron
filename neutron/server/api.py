@@ -14,6 +14,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import os
+
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
 from neutron_lib.callbacks import resources
@@ -25,6 +27,9 @@ from neutron.common import profiler
 
 
 def api_server():
+    if os.environ.get('PYTHONWARNINGS') == 'ignore:Unverified HTTPS request':
+        import urllib3  # pylint: disable=import-outside-toplevel
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     profiler.setup('neutron-server', cfg.CONF.host)
     app = config.load_paste_app('neutron')
     registry.publish(resources.PROCESS, events.BEFORE_SPAWN,
