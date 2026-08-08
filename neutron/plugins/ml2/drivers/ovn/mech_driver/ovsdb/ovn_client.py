@@ -563,7 +563,7 @@ class OVNClient(object):
             ovn_const.OVN_SG_IDS_EXT_ID_KEY: port_info.security_group_ids,
             ovn_const.OVN_REV_NUM_EXT_ID_KEY: str(utils.get_revision_number(
                 port, ovn_const.TYPE_PORTS)),
-            ovn_const.OVN_PORT_VNIC_TYPE_KEY: port_info.vnic_type,
+            ovn_const.OVN_PORT_VNIC_TYPE_KEY: port_info.vnic_type or '',
             ovn_const.OVN_PORT_BP_CAPABILITIES_KEY:
                 ';'.join(port_info.capabilities),
             ovn_const.OVN_NETWORK_MTU_EXT_ID_KEY: port_info.mtu,
@@ -2064,7 +2064,10 @@ class OVNClient(object):
                 ','.join(common_utils.get_az_hints(network)),
             # NOTE(ralonsoh): it is not considered the case of multiple
             # segments.
-            ovn_const.OVN_NETTYPE_EXT_ID_KEY: network.get(pnet.NETWORK_TYPE),
+            # SCI: hardcoding TYPE_VLAN for every network, thus enabling local
+            # gateway termination via VLAN tagging.
+            ovn_const.OVN_NETTYPE_EXT_ID_KEY: network.get(pnet.NETWORK_TYPE,
+                                                          const.TYPE_VLAN),
         }}
 
         # Enable IGMP snooping if igmp_snooping_enable is enabled in Neutron
