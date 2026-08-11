@@ -183,6 +183,7 @@ sriov = "neutron.plugins.ml2.drivers.mech_sriov.agent.extension_drivers.qos_driv
 
 [project.entry-points."neutron.services.external_dns_drivers"]
 designate = "neutron.services.externaldns.drivers.designate.driver:Designate"
+designate_ccloud = "neutron.services.externaldns.drivers.designate.driver_ccloud:DesignateCcloud"
 
 [project.entry-points."neutron.policies"]
 neutron = "neutron.conf.policies:list_rules"
