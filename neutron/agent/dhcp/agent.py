@@ -18,6 +18,7 @@ import copy
 import functools
 import os
 from pathlib import Path
+import socket
 import threading
 import time
 
@@ -88,7 +89,7 @@ def _remove_status_file():
     LOG.info("Agent status file %s removed", AGENT_STATUS_FILE)
 
 
-def _find_synced_net_ns():
+def _find_existing_net_ns():
     synced_nets = set()
     for net in netns.listnetns():
         if net.startswith('qdhcp-'):
@@ -96,7 +97,19 @@ def _find_synced_net_ns():
     return synced_nets
 
 
-def _create_status_file(ready, message, synced_networks=None):
+def _find_existing_bridges():
+    """query kernel for network interface names and return the ones following
+    the naming scheme for neutron bridge interfaces
+    """
+
+    bridges = set(
+        ifname[3:] for (idx, ifname) in socket.if_nameindex()
+        if ifname.startswith('brq')
+    )
+    return bridges
+
+
+def _create_status_file(ready, message, networks=None, bridges=None):
     path = Path(AGENT_STATUS_FILE)
     try:
         path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
@@ -104,14 +117,18 @@ def _create_status_file(ready, message, synced_networks=None):
         LOG.error('Failed to create directory %s', path.parent)
         return
 
-    if synced_networks is None:
-        synced_networks = _find_synced_net_ns()
+    if networks is None:
+        networks = _find_existing_net_ns()
+
+    if bridges is None:
+        bridges = _find_existing_bridges()
 
     status_message = {
         "time": time.time(),
         "ready": ready,
         "message": message,
-        "synced_networks": sorted(synced_networks),
+        "synced_networks": sorted(networks),
+        "synced_bridges": sorted(bridges),
     }
 
     try:
@@ -128,19 +145,50 @@ def _write_status_failure(error):
 
 
 def _write_sync_status(active_network_ids):
-    synced_nets = _find_synced_net_ns()
-    missing_netns = set(active_network_ids) - synced_nets
+    existing_netns = _find_existing_net_ns()
+    existing_bridges = _find_existing_bridges()
 
+    # Bridge name is equal to the first eleven character of the network id
+    # this could lead to collisions, so we will check that below.
+    expected_bridges = {net_id[:11] for net_id in active_network_ids}
+
+    errors = []
+
+    collisions = collections.Counter(net_id[:11]
+                                     for net_id in active_network_ids)
+    colliding_nets = [net_id for net_id in active_network_ids
+                      if collisions[net_id[:11]] > 1]
+
+    if colliding_nets:
+        # we would have all bridges and namespaces, but some namespaces
+        # would miss the bridge interface, so raise this as an error
+        errors.append(f"{len(colliding_nets)} bridge name collision(s): "
+                      f"{', '.join(sorted(colliding_nets)[:5])}"
+                      f"{'...' if len(colliding_nets) > 5 else '.'}")
+
+    missing_netns = set(active_network_ids) - existing_netns
     if missing_netns:
-        ready = False
-        message = (f"Missing {len(missing_netns)} of {len(active_network_ids)}"
-                   f" networks - {', '.join(sorted(missing_netns)[:5])}")
-    else:
+        errors.append(f"Missing {len(missing_netns)} netns: "
+                      f"{', '.join(sorted(missing_netns)[:5])}"
+                      f"{'...' if len(missing_netns) > 5 else '.'}")
+
+    missing_bridges = set(expected_bridges) - existing_bridges
+    if missing_bridges:
+        errors.append(f"Missing {len(missing_bridges)} bridge(s): "
+                      f"{', '.join(sorted(missing_bridges)[:5])}"
+                      f"{'...' if len(missing_bridges) > 5 else '.'}")
+
+    if not errors:
         ready = True
-        message = "All networks synced"
+        message = f"All {len(active_network_ids)} network(s) synced."
+    else:
+        ready = False
+        message = f"Not all {len(active_network_ids)} network(s) are synced!"
+        message += " " + " ".join(errors)
 
     _create_status_file(ready=ready, message=message,
-                        synced_networks=synced_nets)
+                        networks=existing_netns,
+                        bridges=existing_bridges)
 
 
 class DHCPResourceUpdate(queue.ResourceUpdate):
@@ -220,6 +268,7 @@ class DhcpAgent(manager.Manager):
         # we could race with the monitor restarting the process. See also
         # method update_isolated_metadata_proxy().
         self.restarted_metadata_proxy_set = set()
+        self._initial_sync_completed = False
 
     def init_host(self):
         _create_status_file(ready=False, message="DHCP agent starting")
@@ -413,6 +462,7 @@ class DhcpAgent(manager.Manager):
             self.dhcp_ready_ports |= set(self.cache.get_port_ids(only_nets))
             LOG.info('Synchronizing state complete')
             _write_sync_status(self.cache.get_network_ids())
+            self._initial_sync_completed = True
         except Exception as e:
             if only_nets:
                 for network_id in only_nets:
@@ -490,7 +540,11 @@ class DhcpAgent(manager.Manager):
             elif (last_check + cfg.CONF.dhcp_agent_check_interval <
                   time.monotonic()):
                 last_check = time.monotonic()
-                _write_sync_status(self.cache.get_network_ids())
+                if self._initial_sync_completed:
+                    # prevent a race condition where cached networks is empty
+                    # because the sync is not completed
+                    # but the check interval already reached.
+                    _write_sync_status(self.cache.get_network_ids())
 
     def periodic_resync(self):
         """Spawn a thread to periodically resync the dhcp state."""

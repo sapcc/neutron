@@ -2914,10 +2914,14 @@ class TestAgentStatus(base.BaseTestCase):
 
             with mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
                                    status_file_path):
-                with mock.patch.object(netns, 'listnetns'
-                                       ) as netns_list:
+                with (mock.patch.object(netns, 'listnetns')
+                        as netns_list,
+                      mock.patch('socket.if_nameindex') as if_nameindex):
                     netns_list.return_value = ['qdhcp-network-1',
                                                'qdhcp-network-2']
+                    if_nameindex.return_value = [(1, 'lo'),
+                                                 (2, 'brqnetwork-1'),
+                                                 (3, 'brqnetwork-2')]
                     dhcp_agent._write_sync_status(active_net_ids)
 
                 self.assertTrue(status_file_path.exists())
@@ -2926,7 +2930,7 @@ class TestAgentStatus(base.BaseTestCase):
                     status = jsonutils.load(f)
 
             self.assertTrue(status["ready"])
-            self.assertEqual("All networks synced", status["message"])
+            self.assertEqual("All 2 network(s) synced.", status["message"])
             self.assertIn("time", status)
             self.assertIsInstance(status["time"], (int, float))
 
@@ -2942,8 +2946,8 @@ class TestAgentStatus(base.BaseTestCase):
             # Create networks but only create netns file for one
             active_net_ids = {
                 "synced-network",
-                "missing-network-1",
-                "missing-network-2"
+                "missing-1-network",
+                "missing-2-network"
             }
 
             with mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
@@ -2960,15 +2964,140 @@ class TestAgentStatus(base.BaseTestCase):
 
             self.assertFalse(status["ready"])
             message = status["message"]
-            self.assertIn("Missing 2 of 3 networks", message)
-            self.assertIn("missing-network-1", message)
-            self.assertIn("missing-network-2", message)
+            self.assertIn("Not all 3 network(s) are synced", message)
+            self.assertIn("Missing 2 netns", message)
+            self.assertIn("Missing 3 bridge(s)", message)
+            self.assertIn("missing-1-network", message)
+            self.assertIn("missing-2-network", message)
             self.assertIn("time", status)
             self.assertIsInstance(status["time"], (int, float))
             self.assertEqual(
                 {"synced-network"},
                 set(status["synced_networks"])
             )
+
+    def test_missing_bridges_but_netns_present(self):
+        """Test missing bridges but netns present."""
+        with TemporaryDirectory() as tmpdir:
+            status_file_path = Path(tmpdir) / 'dhcp-agent-status.json'
+
+            active_net_ids = {
+                "12345678-abcd-4abc-b123-456789abcdef",
+                "98765432-wxyz-4def-a987-654321fedcba",
+                "11111111-2222-4333-a444-555555555555"
+            }
+
+            with (mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
+                                    status_file_path),
+                  mock.patch.object(netns, 'listnetns') as netns_list,
+                  mock.patch('socket.if_nameindex') as if_nameindex):
+                # All netns present
+                netns_list.return_value = [
+                    'qdhcp-12345678-abcd-4abc-b123-456789abcdef',
+                    'qdhcp-98765432-wxyz-4def-a987-654321fedcba',
+                    'qdhcp-11111111-2222-4333-a444-555555555555'
+                ]
+                # Only one bridge present
+                if_nameindex.return_value = [
+                    (1, 'lo'),
+                    (2, 'brq12345678-ab')
+                ]
+                dhcp_agent._write_sync_status(active_net_ids)
+
+            self.assertTrue(status_file_path.exists())
+
+            with open(status_file_path, 'rb') as f:
+                status = jsonutils.load(f)
+
+            self.assertFalse(status["ready"])
+            message = status["message"]
+            self.assertIn("Missing 2 bridge(s)", message)
+            self.assertIn("11111111-22", message)
+            self.assertIn("98765432-wx", message)
+
+    def test_uuid_collision(self):
+        """Test network UUID collision in bridge names (11-char prefix)."""
+        with TemporaryDirectory() as tmpdir:
+            status_file_path = Path(tmpdir) / 'dhcp-agent-status.json'
+
+            # These two network IDs have the same first 11 characters
+            active_net_ids = {
+                "12345678-abcd-4111-a222-333333333333",
+                "12345678-abcd-4999-b888-777777777777"
+            }
+
+            with (mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
+                                    status_file_path),
+                  mock.patch.object(netns, 'listnetns') as netns_list,
+                  mock.patch('socket.if_nameindex') as if_nameindex):
+                # Both netns present
+                netns_list.return_value = [
+                    'qdhcp-12345678-abcd-4111-a222-333333333333',
+                    'qdhcp-12345678-abcd-4999-b888-777777777777'
+                ]
+                # Only one bridge (collision!)
+                if_nameindex.return_value = [
+                    (1, 'lo'),
+                    (2, 'brq12345678-ab')
+                ]
+                dhcp_agent._write_sync_status(active_net_ids)
+
+            self.assertTrue(status_file_path.exists())
+
+            with open(status_file_path, 'rb') as f:
+                status = jsonutils.load(f)
+
+            self.assertFalse(status["ready"])
+            message = status["message"]
+            self.assertIn("2 bridge name collision(s)", message)
+            self.assertIn("12345678-abcd-4111-a222-333333333333", message)
+            self.assertIn("12345678-abcd-4999-b888-777777777777", message)
+
+    def test_large_list_truncation(self):
+        """Test truncation at 5 items for both netns and bridges."""
+        with TemporaryDirectory() as tmpdir:
+            status_file_path = Path(tmpdir) / 'dhcp-agent-status.json'
+
+            # Create 8 networks, all missing
+            active_net_ids = {
+                f"12345678-a{i}cd-4abc-b123-456789abcdef"
+                for i in range(8)
+            }
+
+            with (mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
+                                    status_file_path),
+                  mock.patch.object(netns, 'listnetns') as netns_list,
+                  mock.patch('socket.if_nameindex') as if_nameindex):
+                # No netns or bridges present
+                netns_list.return_value = []
+                if_nameindex.return_value = [(1, 'lo')]
+                dhcp_agent._write_sync_status(active_net_ids)
+
+            self.assertTrue(status_file_path.exists())
+
+            with open(status_file_path, 'rb') as f:
+                status = jsonutils.load(f)
+
+            self.assertFalse(status["ready"])
+            message = status["message"]
+
+            # Should mention 8 missing netns
+            self.assertIn("Missing 8 netns", message)
+            # Should mention 8 missing bridges
+            self.assertIn("Missing 8 bridge(s)", message)
+
+            # Verify netns truncation (max 4 commas = 5 items, then ellipsis)
+            netns_part = message.split("Missing 8 netns:")[1]
+            netns_part = netns_part.split("Missing")[0]
+            netns_comma_count = netns_part.count(',')
+            self.assertEqual(4, netns_comma_count)
+            self.assertIn("...", netns_part)
+
+            # Verify bridges truncation (max 4 commas = 5 items, then ellipsis)
+            bridge_part = message.split("Missing 8 bridge(s):")[1]
+            bridge_comma_count = bridge_part.count(',')
+            self.assertEqual(4, bridge_comma_count)
+            self.assertIn("...", bridge_part)
 
 
 class TestAgentStatusIntegration(base.BaseTestCase):
@@ -3018,16 +3147,19 @@ class TestAgentStatusIntegration(base.BaseTestCase):
                               'update_isolated_metadata_proxy']
                 )
                 with mock.patch.multiple(dhcp, **attrs_to_mock):
-                    with mock.patch.object(netns, 'listnetns'
-                                           ) as netns_list:
+                    with (mock.patch.object(netns, 'listnetns')
+                          as netns_list,
+                          mock.patch('socket.if_nameindex')
+                          as if_nameindex):
                         netns_list.return_value = ["qdhcp-a"]
+                        if_nameindex.return_value = [(1, 'lo'), (2, 'brqa')]
                         dhcp.sync_state()
 
             with open(status_file.name, 'rb') as f:
                 status = jsonutils.load(f)
                 self.assertTrue(status["ready"])
                 self.assertEqual(status["message"],
-                                 "All networks synced")
+                                 "All 1 network(s) synced.")
 
     def test_sync_status_failure(self):
         with (NamedTemporaryFile(mode='w') as status_file):
