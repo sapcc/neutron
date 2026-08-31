@@ -31,6 +31,7 @@ from neutron.agent.linux.dhcp import Dnsmasq
 from neutron.agent.linux.dhcp import SIGTERM_TIMEOUT
 from neutron.agent.linux import external_process
 from neutron.common import utils as common_utils
+from neutron.objects.sci_objects import SCINetworkSettings
 
 LOG = logging.getLogger(__name__)
 
@@ -106,6 +107,9 @@ class ProcessWrapper:
 
         self.conf = conf
         self.network = network
+
+        settings_dict = getattr(self.network, 'sci_config', None)
+        self._sci_netconfig = SCINetworkSettings.model_validate(settings_dict)
         self._process_monitor = process_monitor
         self._process_uuid = process_uuid
         self._network_conf_dir = net_conf_dir
@@ -232,7 +236,7 @@ class WrapUnbound(ProcessWrapper):
             # only check once, not each time a new instance is created
             return True
 
-        # It would be nice (and a litte more secure) to not rely on the PATH
+        # It would be nice (and a little more secure) to not rely on the PATH
         # to find unbound and unbound-control, but then the rootwrap config
         # has to match the path as well, or our preflight would be happy but
         # the execution would fail later. Lets do what upstream is doing.
@@ -329,7 +333,8 @@ class WrapUnbound(ProcessWrapper):
         else:
             dns_servers = self.conf.dnsmasq_dns_servers
 
-        return dns_servers
+        # check for the new config on the network and apply if present
+        return self._sci_netconfig.get_dns_custom_upstreams(dns_servers)
 
     def _send_unbound_ctrl(self, cmd, limit=1024, timeout=30,
                            limit_fatal=False
@@ -523,6 +528,10 @@ class WrapUnbound(ProcessWrapper):
                     self.network.dns_ednslogging_enabled,
                     default=dnstap_enabled  # no change if None
             )
+
+        # check for the new config on the network and apply if present
+        dnstap_enabled = self._sci_netconfig.get_dns_query_logging(
+                dnstap_enabled)
 
         # only add dnstap config if its enabled
         if dnstap_enabled:
