@@ -47,6 +47,7 @@ from neutron.common.ovn import constants as ovn_constants
 from neutron.common.ovn import utils as ovn_utils
 from neutron.common import utils as common_utils
 from neutron.ipam import utils as ipam_utils
+from neutron.objects.sci_objects import SCINetworkSettings
 from neutron.privileged.agent.linux import dhcp as priv_dhcp
 
 LOG = logging.getLogger(__name__)
@@ -574,6 +575,12 @@ class Dnsmasq(DhcpLocalProcess):
         ntp_servers = getattr(self.network, 'ntp_servers',
                               self.conf.dnsmasq_ntp_servers)
 
+        # support new network settings configuration
+        settings_dict_or_none = getattr(self.network, 'sci_config', None)
+        sci_settings = SCINetworkSettings.model_validate(settings_dict_or_none)
+
+        ntp_servers = sci_settings.get_ntp_servers(ntp_servers)
+
         if ntp_servers:
             # only if we have ntp servers, append the option.
             # note that if the option is present in the config file, the config
@@ -602,7 +609,10 @@ class Dnsmasq(DhcpLocalProcess):
                 LOG.warning('No valid NTP servers in config for network %s',
                             self.network.id)
 
+        dns_servers = self.conf.dnsmasq_dns_servers
+
         # if the network has custom upstreams set, we will use them instead
+        # TODO(mutax): remove legacy settings after migration to new version:
         if hasattr(self.network, 'dns_custom_upstreams'):
             # Do some input validation on the data we got via rpc call, to
             # avoid dnsmasq not starting - worst case is we have no dns, but
@@ -615,8 +625,9 @@ class Dnsmasq(DhcpLocalProcess):
                 except ValueError:
                     LOG.error('Invalid DNS server "%s" for network %s',
                               server, self.network.id)
-        else:
-            dns_servers = self.conf.dnsmasq_dns_servers
+
+        # check for the new config settings
+        dns_servers = sci_settings.get_dns_custom_upstreams(dns_servers)
 
         for server in dns_servers:
             cmd.append('--server=%s' % server)
