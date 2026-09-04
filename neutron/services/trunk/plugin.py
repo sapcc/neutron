@@ -258,6 +258,12 @@ class TrunkPlugin(service_base.ServicePluginBase):
                                         port_id=trunk['port_id'],
                                         status=constants.TRUNK_DOWN_STATUS,
                                         sub_ports=sub_ports)
+
+        payload = events.DBEventPayload(
+            context, resource_id=None, desired_state=trunk_obj)
+        registry.publish(
+            resources.TRUNK, events.BEFORE_CREATE, self, payload=payload)
+
         with db_api.CONTEXT_WRITER.using(context):
             trunk_obj.create()
             payload = events.DBEventPayload(
@@ -356,6 +362,14 @@ class TrunkPlugin(service_base.ServicePluginBase):
             if trunk.status == constants.TRUNK_ERROR_STATUS:
                 raise trunk_exc.TrunkInErrorState(trunk_id=trunk_id)
             trunk.update(status=constants.TRUNK_DOWN_STATUS)
+
+            payload = events.DBEventPayload(context, resource_id=trunk_id,
+                                            states=(original_trunk, trunk,),
+                                            metadata={
+                                                'subports_spec': subports,
+                                            })
+            registry.publish(resources.SUBPORTS, events.BEFORE_CREATE,
+                             self, payload=payload)
 
             for subport in subports:
                 obj = trunk_objects.SubPort(
