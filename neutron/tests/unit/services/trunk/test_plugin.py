@@ -123,6 +123,9 @@ class TrunkPluginTestCase(test_plugin.Ml2PluginV2TestCase):
             self.assertEqual(trunk_obj, payload.latest_state)
             self.assertEqual(trunk['id'], payload.resource_id)
 
+    def test_create_trunk_notify_before_create(self):
+        self._test_trunk_create_notify(events.BEFORE_CREATE)
+
     def test_create_trunk_notify_after_create(self):
         self._test_trunk_create_notify(events.AFTER_CREATE)
 
@@ -221,6 +224,30 @@ class TrunkPluginTestCase(test_plugin.Ml2PluginV2TestCase):
 
     def test_add_subports_notify_precommit_create(self):
         self._test_add_subports_notify(events.PRECOMMIT_CREATE)
+
+    def est_add_subports_notify_before_create(self):
+        event = events.BEFORE_CREATE
+        with self.port() as parent_port, self.port() as child_port:
+            trunk = self._create_test_trunk(parent_port)
+            orig_trunk_obj = self._get_trunk_obj(trunk['id'])
+            subport = create_subport_dict(child_port['port']['id'])
+            callback = register_mock_callback(resources.SUBPORTS, event)
+            self.trunk_plugin.add_subports(
+                self.context, trunk['id'], {'sub_ports': [subport]})
+            trunk_obj = self._get_trunk_obj(trunk['id'])
+            subport_obj = self._get_subport_obj(subport['port_id'])
+            callback.assert_called_once_with(
+                resources.SUBPORTS, event, self.trunk_plugin, payload=mock.ANY)
+            payload = callback.mock_calls[0][2]['payload']
+            self.assertEqual(trunk['id'], payload.resource_id)
+            self.assertEqual(trunk_obj, payload.latest_state)
+            self.assertEqual(orig_trunk_obj, payload.states[0])
+            self.assertEqual([{'port_id': subport_obj.port_id,
+                               'segmentation_id': subport_obj.segmentation_id,
+                               'segmentation_type':
+                                    subport_obj.segmentation_type}],
+                             payload.metadata['subports_spec'])
+            self.assertEqual([subport_obj], payload.metadata['subports_spec'])
 
     def _test_remove_subports_notify(self, event):
         with self.port() as parent_port, self.port() as child_port:
