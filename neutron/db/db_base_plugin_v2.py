@@ -1786,7 +1786,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 sort_keys=sort_keys, sort_dirs=sort_dirs)
         elif limit:
             query = query.limit(limit)
-        return query.distinct()
+        # UNION already deduplicates — no .distinct() needed here.
+        return query
 
     @db_api.retry_if_session_inactive()
     @db_api.CONTEXT_READER
