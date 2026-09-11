@@ -347,6 +347,11 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
         self.assertFalse(mock_network.get('dns_ednslogging_enabled'))
         self.assertIsNone(mock_network.get('dns_custom_upstreams'))
 
+        # verify sci_config is populated
+        sci_config = mock_network.get('sci_config')
+        self.assertIsNotNone(sci_config)
+        self.assertFalse(sci_config['dns_query_logging'])
+
     @mock.patch.object(CustomNetworkConfigurator, "_keystone_connection")
     def test_nameserver_settings_applied(self, mock_keystone):
         """ensure that if the domain of a network matched, the configured
@@ -386,6 +391,13 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
         self.assertIn(dns2, upstreams)
         self.assertEqual(len(upstreams), 2)
 
+        # verify sci_config is populated with serialized settings
+        sci_config = mock_network.get('sci_config')
+        self.assertIsNotNone(sci_config)
+        self.assertFalse(sci_config['dns_query_logging'])
+        self.assertIn(dns1, sci_config['dns_custom_upstreams'])
+        self.assertIn(dns2, sci_config['dns_custom_upstreams'])
+
     @mock.patch.object(CustomNetworkConfigurator, "_keystone_connection")
     def test_ntpserver_settings(self, mock_keystone):
         """ensure the configured NTP server IPs are present in the network
@@ -423,6 +435,12 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
         self.assertIn(ntp1, upstreams)
         self.assertIn(ntp2, upstreams)
         self.assertEqual(len(upstreams), 2)
+
+        # verify sci_config is populated with serialized NTP settings
+        sci_config = mock_network.get('sci_config')
+        self.assertIsNotNone(sci_config)
+        self.assertIn(ntp1, sci_config['ntp_servers'])
+        self.assertIn(ntp2, sci_config['ntp_servers'])
 
     @mock.patch.object(CustomNetworkConfigurator, "_keystone_connection")
     def test_longest_domain_prefix_wins(self, mock_keystone):
@@ -564,6 +582,14 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
         self.assertIsNone(mock_network_nologging.get('dns_custom_upstreams'))
         self.assertIsNone(mock_network_logging.get('dns_custom_upstreams'))
 
+        # verify sci_config dns_query_logging matches the legacy setting
+        sci_config_nolog = mock_network_nologging.get('sci_config')
+        sci_config_log = mock_network_logging.get('sci_config')
+        self.assertIsNotNone(sci_config_nolog)
+        self.assertIsNotNone(sci_config_log)
+        self.assertFalse(sci_config_nolog['dns_query_logging'])
+        self.assertTrue(sci_config_log['dns_query_logging'])
+
     def test_exceptions_configerror_types(self):
         """ensure we are catching non-ip entries in the dns server settings
         """
@@ -592,6 +618,61 @@ class TestDhcpRpcCustomNetworkConfigurator(base.BaseTestCase):
             self._get_cnc_from_yaml_config(configdata=example_config)
         except CustomNetworkConfigError as e:
             self.assertIn('NotABoolean', str(e))
+
+    @mock.patch.object(CustomNetworkConfigurator, "_keystone_connection")
+    def test_sci_config_complete_structure(self, mock_keystone):
+        """Verify sci_config contains all fields with correct types for RPC"""
+
+        mock_network = {'id': 'net-123', 'project_id': 'p-666'}
+        mock_project = MockedDBObj(id='p-666', domain_id='d-42')
+        mock_domain = MockedDBObj(id='d-42', name='mydomain')
+
+        mock_keystone.get_project.return_value = mock_project
+        mock_keystone.get_domain.return_value = mock_domain
+
+        dns1 = "192.0.2.10"
+        dns2 = "2001:db8::1"
+        ntp1 = "192.0.2.100"
+
+        example_config = b"""
+                   matches:
+                       -  domain_name_prefixes:
+                           - mydomain
+                          upstream_dns_servers:
+                           - %s
+                           - %s
+                          ntp_servers:
+                           - %s
+                          ednslogging: True
+                   """ % (dns1.encode(), dns2.encode(), ntp1.encode())
+
+        cnc = self._get_cnc_from_yaml_config(configdata=example_config)
+        cnc.add_custom_settings_to_net(mock_network)
+
+        sci_config = mock_network.get('sci_config')
+        self.assertIsNotNone(sci_config)
+
+        # verify structure: all expected keys present
+        self.assertIn('dns_query_logging', sci_config)
+        self.assertIn('dns_custom_upstreams', sci_config)
+        self.assertIn('ntp_servers', sci_config)
+
+        # verify types: bool for logging, list of strings for IPs
+        self.assertIsInstance(sci_config['dns_query_logging'], bool)
+        self.assertTrue(sci_config['dns_query_logging'])
+
+        self.assertIsInstance(sci_config['dns_custom_upstreams'], list)
+        for ip in sci_config['dns_custom_upstreams']:
+            self.assertIsInstance(ip, str)
+
+        self.assertIsInstance(sci_config['ntp_servers'], list)
+        for ip in sci_config['ntp_servers']:
+            self.assertIsInstance(ip, str)
+
+        # verify values
+        self.assertIn(dns1, sci_config['dns_custom_upstreams'])
+        self.assertIn(dns2, sci_config['dns_custom_upstreams'])
+        self.assertIn(ntp1, sci_config['ntp_servers'])
 
 
 class TestDhcpRpcCallback(base.BaseTestCase):
