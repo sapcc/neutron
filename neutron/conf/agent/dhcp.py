@@ -175,6 +175,9 @@ SCI_OPTS = [
                default='/usr/share/neutron/unbound.conf',
                help=_('Override the default unbound settings '
                       'with this file.')),
+    # FIXME(mutax): remove default:
+    cfg.StrOpt('unbound_controldir', default='/run/dhcp-agent',
+               help=_("Directory for unbound control sockets.")),
     cfg.StrOpt('unbound_logdir', default='',
                help=_("Directory to write per-namespace unbound logfiles.")),
     cfg.IntOpt('unbound_rpz_ttl', default=5,

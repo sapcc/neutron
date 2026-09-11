@@ -224,7 +224,15 @@ class WrapUnbound(ProcessWrapper):
                          net_conf_dir, process_monitor, process_uuid)
 
         self._has_dns_forwarders = None
-        self._control_socket_path = self.get_conf_file_name('unbound.socket')
+
+    @property
+    def _control_socket_path(self):
+
+        cdir = self.conf.SCI.unbound_controldir
+        if cdir and pathlib.Path(cdir).is_dir():
+            return f"{cdir}/unbound.{self.network.id}.sock"
+
+        return self.get_conf_file_name('unbound.socket')
 
     @classmethod
     def _preflight_check(cls, conf) -> bool:
@@ -235,6 +243,11 @@ class WrapUnbound(ProcessWrapper):
         if super()._preflight_check(conf):
             # only check once, not each time a new instance is created
             return True
+
+        if socket_dir := conf.SCI.unbound_controldir:
+            if not pathlib.Path(socket_dir).is_dir():
+                raise RuntimeError(f"unbound socket directory {socket_dir} "
+                                   f"does not exist")
 
         # It would be nice (and a little more secure) to not rely on the PATH
         # to find unbound and unbound-control, but then the rootwrap config
@@ -608,6 +621,8 @@ class WrapUnbound(ProcessWrapper):
         return unbound_rpz
 
     def spawn_process(self, iter_hosts_cb):
+        # p = pathlib.Path(self._control_socket_path)
+        # p.parent.mkdir(parents=True, exist_ok=True)
         self._output_config_files(iter_hosts_cb=iter_hosts_cb)
         self._spawn_or_reload(reload_with_HUP=False)
 
