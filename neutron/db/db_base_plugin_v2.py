@@ -43,10 +43,12 @@ from oslo_db import exception as os_db_exc
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import uuidutils
+from oslo_db.sqlalchemy import utils as sa_utils
 from sqlalchemy import and_
 from sqlalchemy import exc as sql_exc
 from sqlalchemy import func
 from sqlalchemy import not_
+from sqlalchemy.orm import lazyload
 
 from neutron._i18n import _
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -115,7 +117,10 @@ def _update_subnetpool_dict(orig_pool, new_pool):
 
 
 def _port_query_hook(context, original_model, query):
-    # Apply the port query only in non-admin and non-advsvc context
+    # Apply the port query only in non-admin and non-advsvc context.
+    # IMPORTANT: _get_ports_query bypasses these hooks for performance.
+    # If you change the JOIN or filter logic here you MUST mirror that
+    # change in NeutronDbPluginV2._get_ports_query.
     if ndb_utils.model_query_scope_is_project(context, original_model):
         query = query.join(models_v2.Network,
                            models_v2.Network.id == models_v2.Port.network_id)
@@ -123,7 +128,10 @@ def _port_query_hook(context, original_model, query):
 
 
 def _port_filter_hook(context, original_model, conditions):
-    # Apply the port filter only in non-admin and non-advsvc context
+    # Apply the port filter only in non-admin and non-advsvc context.
+    # IMPORTANT: _get_ports_query bypasses these hooks for performance.
+    # If you change the JOIN or filter logic here you MUST mirror that
+    # change in NeutronDbPluginV2._get_ports_query.
     if ndb_utils.model_query_scope_is_project(context, original_model):
         conditions |= and_(
             models_v2.Network.project_id == context.project_id)
@@ -1691,29 +1699,112 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         fixed_ips = filters.pop('fixed_ips', {})
         mac_address = filters.pop('mac_address', {})
         vif_type = filters.pop(portbindings_def.VIF_TYPE, None)
-        query = model_query.get_collection_query(context, Port,
-                                                 filters=filters,
-                                                 lazy_fields=lazy_fields,
-                                                 *args, **kwargs)
         ip_addresses = fixed_ips.get('ip_address')
         subnet_ids = fixed_ips.get('subnet_id')
         ip_addresses_s = fixed_ips.get('ip_address_substr')
+
+        # Determine whether to use the UNION-based project-scope path.
+        # Non-admin tokens are always scoped to their own project.
+        # Admin callers with an explicit single project_id filter use the
+        # same UNION path so visibility semantics are consistent with what
+        # project members see (owned ports + ports on project-owned networks).
+        scope_project = None
+        if ndb_utils.model_query_scope_is_project(context, Port):
+            scope_project = context.project_id
+        elif context.is_admin and filters.get('project_id') and \
+                len(filters['project_id']) == 1:
+            # Pop to avoid a redundant WHERE clause from apply_filters.
+            scope_project = filters.pop('project_id')[0]
+
+        if scope_project is None:
+            # Unscoped admin / advsvc: original path.
+            query = model_query.get_collection_query(context, Port,
+                                                     filters=filters,
+                                                     lazy_fields=lazy_fields,
+                                                     *args, **kwargs)
+            if vif_type is not None:
+                query = query.filter(Port.port_bindings.any(vif_type=vif_type))
+            if mac_address:
+                sanitized_macs = [converters.convert_to_sanitized_mac_address(x)
+                                  for x in mac_address]
+                query = query.filter(
+                    func.lower(Port.mac_address).in_(sanitized_macs))
+            if ip_addresses or subnet_ids or ip_addresses_s:
+                query = query.join(Port.fixed_ips)
+            if ip_addresses:
+                query = query.filter(IPAllocation.ip_address.in_(ip_addresses))
+            if subnet_ids:
+                query = query.filter(IPAllocation.subnet_id.in_(subnet_ids))
+            if limit:
+                query = query.limit(limit)
+            return query.distinct()
+
+        # Project-scoped path (non-admin token OR admin with explicit project):
+        # replace the cross-table OR with a UNION of two independently-indexed
+        # branches so each scan can use a single-table index.
+        sorts = kwargs.get('sorts')
+        marker_obj = kwargs.get('marker_obj')
+        page_reverse = kwargs.get('page_reverse', False)
+
+        # One indexed scan on networks.project_id; result set is small.
+        network_ids = (context.session.query(models_v2.Network.id)
+                       .filter(models_v2.Network.project_id == scope_project))
+
+        # Branch 1: ports owned by the project  →  ix_ports_project_id
+        q_owned = (context.session.query(Port)
+                   .filter(Port.project_id == scope_project))
+
+        # Branch 2: ports on a project-owned network  →  ix_ports_network_id_device_owner
+        q_via_net = (context.session.query(Port)
+                     .filter(Port.network_id.in_(network_ids)))
+
+        if lazy_fields:
+            for field in lazy_fields:
+                q_owned = q_owned.options(lazyload(field))
+                q_via_net = q_via_net.options(lazyload(field))
+
+        q_owned = model_query.apply_filters(q_owned, Port, filters, context)
+        q_via_net = model_query.apply_filters(q_via_net, Port, filters, context)
+
         if vif_type is not None:
-            query = query.filter(Port.port_bindings.any(vif_type=vif_type))
+            q_owned = q_owned.filter(Port.port_bindings.any(vif_type=vif_type))
+            q_via_net = q_via_net.filter(Port.port_bindings.any(vif_type=vif_type))
         if mac_address:
             sanitized_macs = [converters.convert_to_sanitized_mac_address(x)
                               for x in mac_address]
-            query = query.filter(
+            q_owned = q_owned.filter(
+                func.lower(Port.mac_address).in_(sanitized_macs))
+            q_via_net = q_via_net.filter(
                 func.lower(Port.mac_address).in_(sanitized_macs))
         if ip_addresses or subnet_ids or ip_addresses_s:
-            query = query.join(Port.fixed_ips)
+            q_owned = q_owned.join(Port.fixed_ips)
+            q_via_net = q_via_net.join(Port.fixed_ips)
         if ip_addresses:
-            query = query.filter(IPAllocation.ip_address.in_(ip_addresses))
+            q_owned = q_owned.filter(IPAllocation.ip_address.in_(ip_addresses))
+            q_via_net = q_via_net.filter(IPAllocation.ip_address.in_(ip_addresses))
         if subnet_ids:
-            query = query.filter(IPAllocation.subnet_id.in_(subnet_ids))
-        if limit:
+            q_owned = q_owned.filter(IPAllocation.subnet_id.in_(subnet_ids))
+            q_via_net = q_via_net.filter(IPAllocation.subnet_id.in_(subnet_ids))
+
+        # UNION deduplicates ports that appear in both branches (owned by the
+        # project AND on a project-owned network).
+        query = q_owned.union(q_via_net)
+
+        if sorts:
+            sort_keys = ndb_utils.get_and_validate_sort_keys(sorts, Port)
+            sort_dirs = ndb_utils.get_sort_dirs(sorts, page_reverse)
+            for k in model_query._unique_keys(Port):
+                if k not in sort_keys:
+                    sort_keys.append(k)
+                    sort_dirs.append('asc')
+            # Apply cursor + ORDER BY + LIMIT to the union result. MariaDB's
+            # derived_merge may push the cursor condition into the union arms.
+            query = sa_utils.paginate_query(
+                query, Port, limit, marker=marker_obj,
+                sort_keys=sort_keys, sort_dirs=sort_dirs)
+        elif limit:
             query = query.limit(limit)
-        query = query.distinct()
+        # UNION already deduplicates — no .distinct() needed here.
         return query
 
     @db_api.retry_if_session_inactive()
