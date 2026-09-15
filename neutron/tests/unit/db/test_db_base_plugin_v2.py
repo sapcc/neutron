@@ -1560,6 +1560,76 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                     self.assertIn(p1['port']['id'], port_ids)
                     self.assertNotIn(p2['port']['id'], port_ids)
 
+    def test_list_ports_admin_with_project_filter_sees_all_visible(self):
+        """Admin listing with project_id filter matches project-member view.
+
+        An admin caller who passes ?project_id=tenant_1 must receive the
+        same set of ports that tenant_1 itself would see with no extra
+        filter: ports owned by tenant_1 PLUS ports on networks owned by
+        tenant_1, regardless of who owns those ports.
+        """
+        with self.network(tenant_id='tenant_1') as net:
+            with self.subnet(net, tenant_id='tenant_1') as sub:
+                with self.port(sub, project_id='tenant_1') as p_own, \
+                        self.port(sub, project_id='tenant_2',
+                                  is_admin=True) as p_net:
+                    # Non-admin tenant_1 view WITHOUT any extra filter.
+                    tenant_res = self.new_list_request(
+                        'ports', 'json', tenant_id='tenant_1')
+                    tenant_ports = self.deserialize(
+                        'json', tenant_res.get_response(self.api))['ports']
+                    # Admin view with explicit project_id=tenant_1 filter.
+                    admin_res = self.new_list_request(
+                        'ports', 'json', 'project_id=tenant_1',
+                        tenant_id='tenant_1', as_admin=True)
+                    admin_ports = self.deserialize(
+                        'json', admin_res.get_response(self.api))['ports']
+
+                    tenant_ids = {p['id'] for p in tenant_ports}
+                    admin_ids = {p['id'] for p in admin_ports}
+                    # Admin must see the same ports tenant_1 member would see.
+                    self.assertEqual(tenant_ids, admin_ids)
+                    self.assertIn(p_own['port']['id'], admin_ids)
+                    self.assertIn(p_net['port']['id'], admin_ids)
+
+    def test_list_ports_admin_no_project_filter_returns_all(self):
+        """Admin listing without project_id returns ports from all projects."""
+        with self.network(tenant_id='tenant_1') as net1, \
+                self.network(tenant_id='tenant_2') as net2:
+            with self.subnet(net1) as sub1, self.subnet(net2) as sub2:
+                with self.port(sub1, project_id='tenant_1') as p1, \
+                        self.port(sub2, project_id='tenant_2',
+                                  is_admin=True) as p2:
+                    admin_res = self.new_list_request(
+                        'ports', 'json', as_admin=True)
+                    admin_ports = self.deserialize(
+                        'json', admin_res.get_response(self.api))['ports']
+                    port_ids = [p['id'] for p in admin_ports]
+                    self.assertIn(p1['port']['id'], port_ids)
+                    self.assertIn(p2['port']['id'], port_ids)
+
+    def test_list_ports_admin_project_filter_paginated_no_duplicates(self):
+        """Admin-with-project-filter paginated listing has no duplicates.
+
+        Ports owned by the project AND on a project-owned network are
+        candidates for both UNION branches. Pagination must not repeat them.
+        """
+        if self._skip_native_pagination:
+            self.skipTest("Skip test for not implemented pagination feature")
+        with self.network(tenant_id='tenant_1') as net:
+            with self.subnet(net) as sub:
+                with self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:02:01') as p1, \
+                     self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:02:02') as p2, \
+                     self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:02:03') as p3:
+                    self._test_list_with_pagination(
+                        'port', (p1, p2, p3),
+                        ('mac_address', 'asc'), 2, 2,
+                        tenant_id='tenant_1', as_admin=True,
+                        query_params='project_id=tenant_1')
+
     def test_list_ports_with_sort_native(self):
         if self._skip_native_sorting:
             self.skipTest("Skip test for not implemented sorting feature")
