@@ -43,13 +43,12 @@ from oslo_db import exception as os_db_exc
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import uuidutils
+from oslo_db.sqlalchemy import utils as sa_utils
 from sqlalchemy import and_
 from sqlalchemy import exc as sql_exc
 from sqlalchemy import func
 from sqlalchemy import not_
 from sqlalchemy.orm import lazyload
-
-from oslo_db.sqlalchemy import utils as sa_utils
 
 from neutron._i18n import _
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -118,7 +117,10 @@ def _update_subnetpool_dict(orig_pool, new_pool):
 
 
 def _port_query_hook(context, original_model, query):
-    # Apply the port query only in non-admin and non-advsvc context
+    # Apply the port query only in non-admin and non-advsvc context.
+    # IMPORTANT: _get_ports_query bypasses these hooks for performance.
+    # If you change the JOIN or filter logic here you MUST mirror that
+    # change in NeutronDbPluginV2._get_ports_query.
     if ndb_utils.model_query_scope_is_project(context, original_model):
         query = query.join(models_v2.Network,
                            models_v2.Network.id == models_v2.Port.network_id)
@@ -126,7 +128,10 @@ def _port_query_hook(context, original_model, query):
 
 
 def _port_filter_hook(context, original_model, conditions):
-    # Apply the port filter only in non-admin and non-advsvc context
+    # Apply the port filter only in non-admin and non-advsvc context.
+    # IMPORTANT: _get_ports_query bypasses these hooks for performance.
+    # If you change the JOIN or filter logic here you MUST mirror that
+    # change in NeutronDbPluginV2._get_ports_query.
     if ndb_utils.model_query_scope_is_project(context, original_model):
         conditions |= and_(
             models_v2.Network.project_id == context.project_id)
@@ -1698,8 +1703,21 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         subnet_ids = fixed_ips.get('subnet_id')
         ip_addresses_s = fixed_ips.get('ip_address_substr')
 
-        if not ndb_utils.model_query_scope_is_project(context, Port):
-            # Admin / advsvc: original path unchanged.
+        # Determine whether to use the UNION-based project-scope path.
+        # Non-admin tokens are always scoped to their own project.
+        # Admin callers with an explicit single project_id filter use the
+        # same UNION path so visibility semantics are consistent with what
+        # project members see (owned ports + ports on project-owned networks).
+        scope_project = None
+        if ndb_utils.model_query_scope_is_project(context, Port):
+            scope_project = context.project_id
+        elif context.is_admin and filters.get('project_id') and \
+                len(filters['project_id']) == 1:
+            # Pop to avoid a redundant WHERE clause from apply_filters.
+            scope_project = filters.pop('project_id')[0]
+
+        if scope_project is None:
+            # Unscoped admin / advsvc: original path.
             query = model_query.get_collection_query(context, Port,
                                                      filters=filters,
                                                      lazy_fields=lazy_fields,
@@ -1721,20 +1739,20 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 query = query.limit(limit)
             return query.distinct()
 
-        # Project-scoped context: replace the cross-table OR with a UNION of
-        # two independently-indexed branches so each scan can use a
-        # single-table index and avoids a full ports table scan.
+        # Project-scoped path (non-admin token OR admin with explicit project):
+        # replace the cross-table OR with a UNION of two independently-indexed
+        # branches so each scan can use a single-table index.
         sorts = kwargs.get('sorts')
         marker_obj = kwargs.get('marker_obj')
         page_reverse = kwargs.get('page_reverse', False)
 
         # One indexed scan on networks.project_id; result set is small.
         network_ids = (context.session.query(models_v2.Network.id)
-                       .filter(models_v2.Network.project_id == context.project_id))
+                       .filter(models_v2.Network.project_id == scope_project))
 
         # Branch 1: ports owned by the project  →  ix_ports_project_id
         q_owned = (context.session.query(Port)
-                   .filter(Port.project_id == context.project_id))
+                   .filter(Port.project_id == scope_project))
 
         # Branch 2: ports on a project-owned network  →  ix_ports_network_id_device_owner
         q_via_net = (context.session.query(Port)
