@@ -3187,13 +3187,17 @@ class TestAgentStatusIntegration(base.BaseTestCase):
                 attrs_to_mock = dict(
                     (a, mock.DEFAULT)
                     for a in ['disable_dhcp_helper', 'call_driver',
-                              'update_isolated_metadata_proxy']
+                              'update_isolated_metadata_proxy',
+                              'safe_get_network_info']
                 )
-                with mock.patch.multiple(dhcp, **attrs_to_mock):
+                with mock.patch.multiple(dhcp, **attrs_to_mock) as mocks:
+                    mocks['safe_get_network_info'].return_value = None
                     with mock.patch.object(netns, 'listnetns'
                                            ) as netns_list:
                         netns_list.return_value = ["qdhcp-a"]
-                        dhcp.sync_state()
+                        # calls dhcp.sync_state()
+                        dhcp.init_host()
+                        dhcp.cache.cleanup_loop.stop()
 
             with open(status_file.name, 'rb') as f:
                 status = jsonutils.load(f)
@@ -3214,7 +3218,9 @@ class TestAgentStatusIntegration(base.BaseTestCase):
                     plug.return_value = mock_plugin
 
                     dhcp = dhcp_agent.DhcpAgent(HOSTNAME)
-                    dhcp.sync_state()
+                    # calls dhcp.sync_state()
+                    dhcp.init_host()
+                    dhcp.cache.cleanup_loop.stop()
 
                 with open(status_file.name, 'rb') as f:
                     status = jsonutils.load(f)
