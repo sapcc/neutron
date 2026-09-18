@@ -840,8 +840,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 if update_binding_levels:
                     db.clear_binding_levels(plugin_context, port_id,
                                             cur_binding.host)
-                    db.set_binding_levels(plugin_context,
-                                          bind_context._binding_levels)
+                    with db_api.exc_to_retry(os_db_exception.DBReferenceError):
+                        db.set_binding_levels(plugin_context,
+                                              bind_context._binding_levels)
                     # Expire the "binding_levels" and fetch them into the port.
                     plugin_context.session.flush()
                     getattr(port_db, 'binding_levels')
@@ -1760,6 +1761,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
     def _create_port_bulk(self, context, port_list, network_cache):
         # TODO(njohnston): Break this up into smaller functions.
         port_data = []
+        macs = self._generate_macs(len(port_list))
         with db_api.CONTEXT_WRITER.using(context):
             for port in port_list:
                 # Set up the port request dict
@@ -1787,10 +1789,22 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
                 network = network_cache[network_id]
 
+                # Determine the MAC address
+                raw_mac_address = pdata.get('mac_address',
+                                            const.ATTR_NOT_SPECIFIED)
+                if raw_mac_address is const.ATTR_NOT_SPECIFIED:
+                    raw_mac_address = macs.pop()
+                elif self._is_mac_in_use(context, network_id, raw_mac_address,
+                                         globally_unique=True):
+                    raise exc.MacAddressInUse(net_id=network_id,
+                                              mac=raw_mac_address)
+                eui_mac_address = netaddr.EUI(raw_mac_address,
+                                              dialect=eui48.mac_unix_expanded)
+                port['port']['mac_address'] = str(eui_mac_address)
+
                 db_port_obj = ports_obj.Port(
                     context,
-                    mac_address=netaddr.EUI(port['port']['mac_address'],
-                                            dialect=eui48.mac_unix_expanded),
+                    mac_address=eui_mac_address,
                     id=port['port']['id'], **bulk_port_data)
                 db_port_obj.create()
 
@@ -2961,6 +2975,13 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
     @utils.transaction_guard
     @db_api.retry_if_session_inactive()
     def delete_port_binding(self, context, host, port_id):
+        port_db = self._get_port(context, port_id)
+        binding = self._get_binding_for_host(port_db.port_bindings, host)
+        if not binding:
+            raise exc.PortBindingNotFound(port_id=port_id, host=host)
+        if binding.status == const.ACTIVE:
+            raise exc.PortBindingInStatusActive(port_id=port_id, host=host)
+
         ports_obj.PortBinding.delete_objects(context,
                                              host=host,
                                              port_id=port_id)

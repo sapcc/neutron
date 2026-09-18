@@ -17,8 +17,12 @@ import collections
 from concurrent import futures
 import copy
 import datetime
+import os
+from pathlib import Path
 import signal
 import sys
+from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
 import time
 from unittest import mock
 import uuid
@@ -28,11 +32,13 @@ from neutron_lib import constants as const
 from neutron_lib import exceptions
 from oslo_config import cfg
 import oslo_messaging
+from oslo_serialization import jsonutils
 # NOTE(ralonsoh): [eventlet-removal] change back to
 # ``oslo_service.loopingcall`` when the removal is completed.
 from oslo_service.backend._threading import loopingcall
 from oslo_utils import netutils
 from oslo_utils import timeutils
+from pyroute2 import netns
 import testtools
 
 from neutron.agent.dhcp import agent as dhcp_agent
@@ -74,7 +80,8 @@ fake_subnet1 = dhcp.DictModel(id='bbbbbbbb-bbbb-bbbb-bbbbbbbbbbbb',
                               ip_version=const.IP_VERSION_4,
                               subnetpool_id=FAKE_V4_SUBNETPOOL_ID,
                               ipv6_ra_mode=None, ipv6_address_mode=None,
-                              allocation_pools=fake_subnet1_allocation_pools)
+                              allocation_pools=fake_subnet1_allocation_pools,
+                              created_at='2023-10-30T15:21:46Z')
 
 fake_subnet2_allocation_pools = dhcp.DictModel(id='', start='172.9.8.2',
                                                end='172.9.8.254')
@@ -85,7 +92,8 @@ fake_subnet2 = dhcp.DictModel(id='dddddddd-dddd-dddd-dddddddddddd',
                               gateway_ip='172.9.8.1',
                               host_routes=[], dns_nameservers=[],
                               ip_version=const.IP_VERSION_4,
-                              allocation_pools=fake_subnet2_allocation_pools)
+                              allocation_pools=fake_subnet2_allocation_pools,
+                              created_at='2023-10-30T15:21:46Z')
 
 fake_subnet3 = dhcp.DictModel(id='bbbbbbbb-1111-2222-bbbbbbbbbbbb',
                               network_id=FAKE_NETWORK_UUID,
@@ -322,6 +330,9 @@ class TestDhcpAgent(base.BaseTestCase):
         self.mock_loopstart_p = mock.patch.object(
             loopingcall.FixedIntervalLoopingCall, 'start')
         self.mock_loopstart = self.mock_loopstart_p.start()
+        self.mock_create_status_file_p = mock.patch(
+            'neutron.agent.dhcp.agent._create_status_file')
+        self.mock_create_status_file_p.start()
 
     def test_init_resync_throttle_conf(self):
         try:
@@ -517,7 +528,10 @@ class TestDhcpAgent(base.BaseTestCase):
             agent.call_driver('get_metadata_bind_interface', network))
 
     def _test_sync_state_helper(self, known_net_ids, active_net_ids):
-        active_networks = {mock.Mock(id=netid) for netid in active_net_ids}
+        active_networks = {
+            mock.Mock(id=netid, namespace=netid)
+            for netid in active_net_ids
+        }
 
         with mock.patch(DHCP_PLUGIN) as plug:
             mock_plugin = mock.Mock()
@@ -813,7 +827,6 @@ class TestDhcpAgent(base.BaseTestCase):
             dhcp.configure_dhcp_for_network(fake_network)
             md_cls.spawn_monitored_metadata_proxy.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, mock.ANY,
-                bind_address=const.METADATA_V4_IP,
                 network_id=fake_network.id)
             md_cls.reset_mock()
             dhcp.disable_dhcp_helper(fake_network.id)
@@ -833,7 +846,6 @@ class TestDhcpAgent(base.BaseTestCase):
                 mock.ANY, fake_network.id, mock.ANY, fake_network.namespace)
             md_cls.spawn_monitored_metadata_proxy.assert_called_once_with(
                 mock.ANY, mock.ANY, mock.ANY, mock.ANY,
-                bind_address=const.METADATA_V4_IP,
                 network_id=fake_network.id)
 
     def test_report_state_revival_logic(self):
@@ -1229,12 +1241,10 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
                        '.spawn_monitored_metadata_proxy')
         with mock.patch(method_path) as spawn:
             self.dhcp.enable_isolated_metadata_proxy(network)
-            metadata_ip = const.METADATA_V4_IP
             spawn.assert_called_once_with(self.dhcp._process_monitor,
                                           network.namespace,
                                           const.METADATA_PORT,
                                           cfg.CONF,
-                                          bind_address=metadata_ip,
                                           router_id='forzanapoli')
 
     def test_enable_isolated_metadata_proxy_with_metadata_network(self):
@@ -1261,7 +1271,6 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
                                           network.namespace,
                                           const.METADATA_PORT,
                                           cfg.CONF,
-                                          bind_address='169.254.169.254',
                                           network_id=network.id,
                                           bind_interface='fake-interface',
                                           bind_address_v6='fe80::a9fe:a9fe')
@@ -2000,11 +2009,13 @@ class TestNetworkCache(base.BaseTestCase):
 class FakePort1:
     def __init__(self):
         self.id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+        self.fixed_ips = []
 
 
 class FakePort2:
     def __init__(self):
         self.id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+        self.fixed_ips = []
 
 
 class FakeV4Subnet:
@@ -2015,6 +2026,7 @@ class FakeV4Subnet:
         self.gateway_ip = '192.168.0.1'
         self.enable_dhcp = True
         self.subnetpool_id = FAKE_V4_SUBNETPOOL_ID
+        self.created_at = "2023-10-30T15:21:46Z"
 
 
 class FakeV6Subnet:
@@ -2025,12 +2037,14 @@ class FakeV6Subnet:
         self.gateway_ip = '2001:db8:0:1::1'
         self.enable_dhcp = True
         self.subnetpool_id = FAKE_V6_SUBNETPOOL_ID
+        self.created_at = "2023-10-30T15:21:46Z"
 
 
 class FakeV4SubnetOutsideGateway(FakeV4Subnet):
     def __init__(self):
         super().__init__()
         self.gateway_ip = '192.168.1.1'
+        self.created_at = "2023-10-30T15:21:46Z"
 
 
 class FakeV6SubnetOutsideGateway(FakeV6Subnet):
@@ -2046,6 +2060,7 @@ class FakeV4SubnetNoGateway:
         self.cidr = '192.168.1.0/24'
         self.gateway_ip = None
         self.enable_dhcp = True
+        self.created_at = "2023-10-30T15:21:46Z"
 
 
 class FakeV6SubnetNoGateway:
@@ -2055,6 +2070,7 @@ class FakeV6SubnetNoGateway:
         self.cidr = '2001:db8:1:0::/64'
         self.gateway_ip = None
         self.enable_dhcp = True
+        self.created_at = "2023-10-30T15:21:46Z"
 
 
 class FakeV4Network:
@@ -2664,6 +2680,325 @@ class TestDeviceManager(base.BaseTestCase):
         self.assertFalse(device.route.delete_gateway.called)
         device.route.add_gateway.assert_has_calls(expected)
 
+    def test_resolvconf_in_netns_created(self):
+        # check if we write a resolv.conf
+
+        netns = 'netns'
+
+        with TemporaryDirectory() as tmpdir:
+            dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+            dh.NNS_RESOLVCONF_PATH = tmpdir
+            dh._write_resolvconf(netns)
+            resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+            self.assertTrue(os.path.isfile(resolvconf))
+
+    def test_resolvconf_in_netns_idempotent(self):
+        # check if the call is idempotent
+        # and raises no exception if the file already exists
+
+        netns = 'netns'
+
+        with TemporaryDirectory() as tmpdir:
+            resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+            dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+            dh.NNS_RESOLVCONF_PATH = tmpdir
+            dh._write_resolvconf(netns)
+            self.assertTrue(os.path.isfile(resolvconf))
+
+            # now (try to) write it again without exceptions
+            dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+            dh.NNS_RESOLVCONF_PATH = tmpdir
+            dh._write_resolvconf(netns)
+            self.assertTrue(os.path.isfile(resolvconf))
+
+    def test_resolvconf_in_netns_permissions_dir(self):
+        # Check that missing permissions do not
+        # raise an unhandled exception breaking the agent setup
+        # but ensure an error gets logged.
+
+        netns = 'netns'
+
+        with self.assertLogs('neutron.agent.linux.dhcp',
+                             level='ERROR') as log:
+            with TemporaryDirectory() as tmpdir:
+                resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+
+                # need to mock, because when tests are running
+                # as root in a container, permissions will be ignored!
+                with mock.patch("builtins.open") as mock_open:
+                    with mock.patch("os.makedirs",
+                                    side_effect=IOError('mocked error')
+                                    ) as mock_mkdirs:
+                        dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+                        dh.NNS_RESOLVCONF_PATH = tmpdir
+                        dh._write_resolvconf(netns)
+
+                self.assertFalse(os.path.isfile(resolvconf))
+
+            # we fail early when the directory does not exist and
+            # can not be created, so open should never be called.
+
+            mock_mkdirs.assert_called()
+            mock_open.assert_not_called()
+
+            expecting = ('ERROR:neutron.agent.linux.dhcp:'
+                         'Failed to create directory')
+
+            # log.output is a list of strings, so a simple "in"
+            # will not work for a partial match, str() helps
+            self.assertIn(expecting, str(log.output))
+
+    def test_resolvconf_in_netns_permissions_file(self):
+        # Check that missing permissions do not
+        # raise an unhandled exception breaking the agent setup
+        # but ensure an error gets logged.
+
+        netns = 'netns'
+
+        with self.assertLogs('neutron.agent.linux.dhcp',
+                level='ERROR') as log:
+            with TemporaryDirectory() as tmpdir:
+                resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+
+                # need to mock, because when tests are running
+                # as root in a container, permissions will be ignored!
+                with mock.patch("builtins.open",
+                                side_effect=PermissionError('mocked error')
+                                ) as mock_open:
+                    with mock.patch("os.makedirs") as mock_mkdirs:
+                        dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+                        dh.NNS_RESOLVCONF_PATH = tmpdir
+                        dh._write_resolvconf(netns)
+
+                self.assertFalse(os.path.isfile(resolvconf))
+
+            mock_mkdirs.assert_called()
+            mock_open.assert_called()
+
+            expecting = ('ERROR:neutron.agent.linux.dhcp:'
+                         'Failed to create resolv.conf')
+
+            # log.output is a list of strings, so a simple "in"
+            # will not work for a partial match, str() helps
+            self.assertIn(expecting, str(log.output))
+
+    @staticmethod
+    def _read_resolvconf(resolvconf, filter_keywords=False):
+        settings = set()
+        valid_keywords = set(('options', 'search', 'nameserver'))
+
+        with open(resolvconf, 'r') as f:
+            for line in f.readlines():
+                keyword, *values = line.strip().split(' ', 1)
+                # ignore empty lines and comments
+                if keyword and not keyword.startswith('#'):
+                    if filter_keywords and keyword not in valid_keywords:
+                        # some tests only check valid settings
+                        continue
+                    value = values[0] if values else None
+                    settings.add((keyword, value))
+        return settings
+
+    def test_resolvconf_in_netns_test_parser(self):
+        # with most resolvconf tests depending on the helper function,
+        # _read_resolvconf, lets test that one as well here
+
+        with TemporaryDirectory() as tmpdir:
+            resolvconf = f"{tmpdir}/resolv.conf"
+            with open(resolvconf, 'w') as f:
+                f.write("# comment\n")
+                f.write("\n")
+                f.write("  \n")
+                f.write("#commented out\n")
+                f.write("invalid setting\n")
+                f.write("orphaned \n")
+                f.write("nameserver 1.2.3\n")
+                f.write("nameserver 4.5.6\n")
+                f.write("search domain a b c\n")
+                f.write("options go here\n")
+
+            settings = self._read_resolvconf(resolvconf)
+            filtered = self._read_resolvconf(resolvconf, filter_keywords=True)
+
+        expected_filtered = set((
+                                ('nameserver', '1.2.3'),
+                                ('nameserver', '4.5.6'),
+                                ('search', 'domain a b c'),
+                                ('options', 'go here'),
+                                ))
+
+        invalid_settings = set((('invalid', 'setting'), ('orphaned', None)))
+        expected_settings = expected_filtered | invalid_settings
+
+        self.assertEqual(settings, expected_settings)
+        self.assertEqual(filtered, expected_filtered)
+
+    def test_resolvconf_in_netns_is_complete(self):
+        # check if the resolv.conf has all default settings
+
+        netns = 'netns'
+
+        cfg.CONF.set_override('dns_domain', 'some.dns.domain.')
+
+        with TemporaryDirectory() as tmpdir:
+            dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+            dh.NNS_RESOLVCONF_PATH = tmpdir
+            dh._write_resolvconf(netns)
+            resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+
+            required_keywords = set(('nameserver', 'search', 'options'))
+            # we must not set filter_keywords to True here in any case,
+            # this test is supposed to check for invalid keywords/settings
+            settings = self._read_resolvconf(resolvconf)
+            found_keywords = set([x[0] for x in settings])
+
+        self.assertEqual(required_keywords, found_keywords)
+
+    def test_resolvconf_in_netns_settings(self):
+        # check if the resolv.conf gets all configured settings
+
+        netns = 'netns'
+
+        cfg.CONF.set_override('netns_resolvconf_nameservers',
+                              ['foo-ns-1', 'foo-ns-2'])
+
+        cfg.CONF.set_override('netns_resolvconf_search',
+                              'some search domains')
+
+        cfg.CONF.set_override('netns_resolvconf_options',
+                              'some dns opts')
+
+        expected_settings = set((
+            ("options", "some dns opts"),
+            ("search", "some search domains"),
+            ("nameserver", "foo-ns-1"),
+            ("nameserver", "foo-ns-2"),
+        ))
+
+        with TemporaryDirectory() as tmpdir:
+            resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+
+            dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+            dh.NNS_RESOLVCONF_PATH = tmpdir
+            dh._write_resolvconf(netns)
+
+            # only check our settings, completeness/correctness is
+            # already checked in test_resolvconf_in_netns_is_complete
+            found_settings = self._read_resolvconf(resolvconf,
+                            filter_keywords=True)
+
+        self.assertEqual(expected_settings, found_settings)
+
+    def test_resolvconf_in_netns_defaults(self):
+        # check if the resolv.conf gets all default settings
+
+        netns = 'netns'
+
+        cfg.CONF.set_override('dns_domain', 'some.dns.domain.')
+
+        for ipv6_enabled in True, False:
+
+            with mock.patch.object(netutils, 'is_ipv6_enabled') as mock_v6:
+                mock_v6.return_value = ipv6_enabled
+
+                expected_settings = set((
+                    ("options", cfg.CONF.netns_resolvconf_options),
+                    ("search", cfg.CONF.dns_domain),
+                    ("nameserver", "127.0.0.1"),
+                ))
+
+                if ipv6_enabled:
+                    expected_settings.add(("nameserver", "::1"))
+
+                with TemporaryDirectory() as tmpdir:
+                    resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+
+                    dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+                    dh.NNS_RESOLVCONF_PATH = tmpdir
+                    dh._write_resolvconf(netns)
+
+                    # only check our settings, completeness/correctness is
+                    # already checked in test_resolvconf_in_netns_is_complete
+                    found_settings = self._read_resolvconf(resolvconf,
+                                    filter_keywords=True)
+
+                self.assertEqual(expected_settings, found_settings)
+
+    def test_resolvconf_in_netns_settings_allow_skip(self):
+        # check if settings in the resolv.conf can be skipped
+        # by setting the config options to an empty value
+
+        netns = 'netns'
+
+        # The defaults of the settings have to be None, so we can distinguish
+        # between the option not being present in the config file, so we use
+        # our dynamic defaults, e.g. the search domain, and the case where the
+        # operator intentionally sets the config setting to an empty value to
+        # prevent us from using any defaults and skip the keyword in the
+        # resolv.conf file entirely.
+        #
+        # As this is not necessarily obvious, these assertions
+        # should prevent a change in the defaults that would break
+        # this functionality:
+
+        self.assertIsNone(
+            cfg.CONF._get_opt_info(
+                'netns_resolvconf_nameservers'
+            )['opt'].default
+        )
+
+        self.assertIsNone(
+            cfg.CONF._get_opt_info(
+                'netns_resolvconf_search'
+            )['opt'].default
+        )
+
+        cfg.CONF.set_override('netns_resolvconf_nameservers',
+                              [])
+
+        cfg.CONF.set_override('netns_resolvconf_search',
+                              '')
+
+        cfg.CONF.set_override('netns_resolvconf_options',
+                              '')
+
+        with TemporaryDirectory() as tmpdir:
+            resolvconf = f"{tmpdir}/{netns}/resolv.conf"
+
+            dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
+            dh.NNS_RESOLVCONF_PATH = tmpdir
+            dh._write_resolvconf(netns)
+
+            found_settings = self._read_resolvconf(resolvconf)
+
+        # there should be no settings found in the resolv.conf,
+        # i.e. it should be empty except for a comment
+        self.assertEqual(set(), found_settings)
+
+    def test_resolvconf_in_netns_setup(self):
+        # check if we create the resolv.conf (but only when enabled)
+
+        # setting is present and default is False?
+        self.assertFalse(getattr(cfg, 'netns_resolvconf', None))
+
+        for write_file in (True, False):
+            cfg.CONF.set_override('netns_resolvconf', write_file)
+            with TemporaryDirectory() as tmpdir:
+                with mock.patch.object(dhcp.ip_lib, 'IPDevice') \
+                        as mock_IPDevice:
+                    plugin = mock.Mock()
+                    device = mock.Mock()
+                    mock_IPDevice.return_value = device
+                    device.route.get_gateway.return_value = None
+                    net = copy.deepcopy(fake_network)
+                    plugin.create_dhcp_port.return_value = fake_dhcp_port
+                    dh = dhcp.DeviceManager(cfg.CONF, plugin)
+                    dh.NNS_RESOLVCONF_PATH = tmpdir
+                    dh.setup(net)
+
+                resolvconf = f"{tmpdir}/{net.namespace}/resolv.conf"
+                self.assertEqual(write_file, os.path.isfile(resolvconf))
+
 
 class TestDHCPResourceUpdate(base.BaseTestCase):
 
@@ -2716,3 +3051,178 @@ class TestDHCPResourceUpdate(base.BaseTestCase):
         # In this case, both "port" events have matching IPs. "__lt__" method
         # uses the timestamp: date2 < date1
         self.assertLess(update2, update1)
+
+
+class TestAgentStatus(base.BaseTestCase):
+
+    def test_write_status_failure(self):
+        with TemporaryDirectory() as tmpdir:
+            status_file_path = Path(tmpdir) / 'dhcp-agent-status.txt'
+            error_message = "Test error: network sync failed"
+            test_error = Exception(error_message)
+
+            with mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
+                                   status_file_path):
+                dhcp_agent._write_status_failure(test_error)
+
+                # Verify the file was created
+                self.assertTrue(status_file_path.exists())
+
+                # Read and verify the status file content
+                with open(status_file_path, 'rb') as f:
+                    status = jsonutils.load(f)
+
+                self.assertFalse(status["ready"])
+                self.assertEqual(error_message, status["message"])
+                self.assertIn("time", status)
+                self.assertIsInstance(status["time"], (int, float))
+
+    def test_write_status_synced(self):
+        with TemporaryDirectory() as tmpdir:
+            status_file_path = Path(tmpdir) / 'dhcp-agent-status.json'
+
+            # Create networks with corresponding namespace files (all synced)
+            active_net_ids = {"network-1", "network-2"}
+
+            with mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
+                                   status_file_path):
+                with mock.patch.object(netns, 'listnetns'
+                                       ) as netns_list:
+                    netns_list.return_value = ['qdhcp-network-1',
+                                               'qdhcp-network-2']
+                    dhcp_agent._write_sync_status(active_net_ids)
+
+                self.assertTrue(status_file_path.exists())
+
+                with open(status_file_path, 'rb') as f:
+                    status = jsonutils.load(f)
+
+            self.assertTrue(status["ready"])
+            self.assertEqual("All networks synced", status["message"])
+            self.assertIn("time", status)
+            self.assertIsInstance(status["time"], (int, float))
+
+            self.assertEqual(
+                {"network-1", "network-2"},
+                set(status["synced_networks"])
+            )
+
+    def test_write_status_unsynced(self):
+        with TemporaryDirectory() as tmpdir:
+            status_file_path = Path(tmpdir) / 'dhcp-agent-status.json'
+
+            # Create networks but only create netns file for one
+            active_net_ids = {
+                "synced-network",
+                "missing-network-1",
+                "missing-network-2"
+            }
+
+            with mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
+                                   status_file_path):
+                with mock.patch.object(netns, 'listnetns'
+                                       ) as netns_list:
+                    netns_list.return_value = ["qdhcp-synced-network"]
+                    dhcp_agent._write_sync_status(active_net_ids)
+
+            self.assertTrue(status_file_path.exists())
+
+            with open(status_file_path, 'rb') as f:
+                status = jsonutils.load(f)
+
+            self.assertFalse(status["ready"])
+            message = status["message"]
+            self.assertIn("Missing 2 of 3 networks", message)
+            self.assertIn("missing-network-1", message)
+            self.assertIn("missing-network-2", message)
+            self.assertIn("time", status)
+            self.assertIsInstance(status["time"], (int, float))
+            self.assertEqual(
+                {"synced-network"},
+                set(status["synced_networks"])
+            )
+
+
+class TestAgentStatusIntegration(base.BaseTestCase):
+
+    def setUp(self):
+        super(TestAgentStatusIntegration, self).setUp()
+
+        entry.register_options(cfg.CONF)
+        cfg.CONF.set_override('interface_driver',
+                              'neutron.agent.linux.interface.NullDriver')
+        cfg.CONF.set_override('report_interval', 0, 'AGENT')
+        self.driver_cls_p = mock.patch(
+            'neutron.agent.dhcp.agent.importutils.import_class')
+        self.driver = mock.Mock(name='driver')
+        self.driver.existing_dhcp_networks.return_value = []
+        self.driver_cls = self.driver_cls_p.start()
+        self.driver_cls.return_value = self.driver
+        mock.patch("os.makedirs").start()
+        mock.patch(
+            "neutron.agent.metadata.driver.HaproxyConfigurator").start()
+        mock.patch("neutron.agent.linux.ip_lib.IPWrapper").start()
+
+    def test_sync_status(self):
+        active_net_ids = ["a"]
+        active_networks = set(
+            mock.Mock(id=netid, namespace=f"qdhcp-{netid}",
+                      admin_state_up=True,
+                      non_local_subnets=[],
+                      ports=[],
+                      subnets=[mock.Mock(enable_dhcp=True)])
+            for netid in active_net_ids
+        )
+
+        with (NamedTemporaryFile(mode='w') as status_file):
+            dhcp_agent.AGENT_STATUS_FILE = status_file.name
+
+            with mock.patch(DHCP_PLUGIN) as plug:
+                mock_plugin = mock.Mock()
+                mock_plugin.get_active_networks_info.return_value = (
+                    active_networks
+                )
+                plug.return_value = mock_plugin
+                dhcp = dhcp_agent.DhcpAgent(HOSTNAME)
+                attrs_to_mock = dict(
+                    (a, mock.DEFAULT)
+                    for a in ['disable_dhcp_helper', 'call_driver',
+                              'update_isolated_metadata_proxy',
+                              'safe_get_network_info']
+                )
+                with mock.patch.multiple(dhcp, **attrs_to_mock) as mocks:
+                    mocks['safe_get_network_info'].return_value = None
+                    with mock.patch.object(netns, 'listnetns'
+                                           ) as netns_list:
+                        netns_list.return_value = ["qdhcp-a"]
+                        # calls dhcp.sync_state()
+                        dhcp.init_host()
+                        dhcp.cache.cleanup_loop.stop()
+
+            with open(status_file.name, 'rb') as f:
+                status = jsonutils.load(f)
+                self.assertTrue(status["ready"])
+                self.assertEqual(status["message"],
+                                 "All networks synced")
+
+    def test_sync_status_failure(self):
+        with (NamedTemporaryFile(mode='w') as status_file):
+            with mock.patch.object(dhcp_agent, 'AGENT_STATUS_FILE',
+                                   status_file.name):
+
+                with mock.patch(DHCP_PLUGIN) as plug:
+                    mock_plugin = mock.Mock()
+                    error_msg = "test error"
+                    mock_plugin.get_active_networks_info.side_effect = \
+                        Exception(error_msg)
+                    plug.return_value = mock_plugin
+
+                    dhcp = dhcp_agent.DhcpAgent(HOSTNAME)
+                    # calls dhcp.sync_state()
+                    dhcp.init_host()
+                    dhcp.cache.cleanup_loop.stop()
+
+                with open(status_file.name, 'rb') as f:
+                    status = jsonutils.load(f)
+                    self.assertFalse(status["ready"])
+                    self.assertEqual(status["message"], "test error")

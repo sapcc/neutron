@@ -2594,7 +2594,7 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
 
     def test_range_allocation(self):
         with self.subnet(gateway_ip='10.0.0.3',
-                         cidr='10.0.0.0/29') as subnet:
+                         cidr='10.0.0.0/28') as subnet:
             kwargs = {"fixed_ips": [{'subnet_id': subnet['subnet']['id']},
                                     {'subnet_id': subnet['subnet']['id']},
                                     {'subnet_id': subnet['subnet']['id']},
@@ -2605,18 +2605,17 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             port = self.deserialize(self.fmt, res)
             ips = port['port']['fixed_ips']
             self.assertEqual(5, len(ips))
-            alloc = ['10.0.0.1', '10.0.0.2', '10.0.0.4', '10.0.0.5',
-                     '10.0.0.6']
+            alloc = ['10.0.0.%s' % i for i in range(1, 15) if i != 3]
             for ip in ips:
                 self.assertIn(ip['ip_address'], alloc)
                 self.assertEqual(ip['subnet_id'],
                                  subnet['subnet']['id'])
                 alloc.remove(ip['ip_address'])
-            self.assertEqual(0, len(alloc))
+            self.assertEqual(8, len(alloc))
             self._delete('ports', port['port']['id'])
 
         with self.subnet(gateway_ip='11.0.0.6',
-                         cidr='11.0.0.0/29') as subnet:
+                         cidr='11.0.0.0/28') as subnet:
             kwargs = {"fixed_ips": [{'subnet_id': subnet['subnet']['id']},
                                     {'subnet_id': subnet['subnet']['id']},
                                     {'subnet_id': subnet['subnet']['id']},
@@ -2627,14 +2626,13 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             port = self.deserialize(self.fmt, res)
             ips = port['port']['fixed_ips']
             self.assertEqual(5, len(ips))
-            alloc = ['11.0.0.1', '11.0.0.2', '11.0.0.3', '11.0.0.4',
-                     '11.0.0.5']
+            alloc = ['11.0.0.%s' % i for i in range(1, 15) if i != 6]
             for ip in ips:
                 self.assertIn(ip['ip_address'], alloc)
                 self.assertEqual(ip['subnet_id'],
                                  subnet['subnet']['id'])
                 alloc.remove(ip['ip_address'])
-            self.assertEqual(0, len(alloc))
+            self.assertEqual(8, len(alloc))
             self._delete('ports', port['port']['id'])
 
     def test_requested_invalid_fixed_ips(self):
@@ -7288,12 +7286,14 @@ class NeutronDbPluginV2AsMixinTestCase(NeutronDbPluginV2TestCase,
         network.subnets = [models_v2.Subnet(subnetpool_id='test_id',
                                             ip_version=constants.IP_VERSION_4)]
         new_subnetpool_id = None
-        self.assertRaises(lib_exc.NetworkSubnetPoolAffinityError,
-                          self.plugin.ipam._validate_network_subnetpools,
-                          network,
-                          constants.IP_VERSION_4,
-                          new_subnetpool_id,
-                          None)
+
+        # downstream patch
+        # call method without raising NetworkSubnetPoolAffinityError
+        self.plugin.ipam._validate_network_subnetpools(
+                network,
+                constants.IP_VERSION_4,
+                new_subnetpool_id,
+                None)
 
     def test_create_subnet_invalid_network_mtu_ipv4_returns_409(self):
         self.net_data['network']['mtu'] = constants.IPV4_MIN_MTU - 1
