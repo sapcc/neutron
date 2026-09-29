@@ -96,6 +96,11 @@ class PortBindingLevel(model_base.BASEV2):
         load_on_pending=True)
     revises_on_change = ('port', )
 
+    __table_args__ = (
+        sa.Index('ix_ml2_port_binding_levels_host_driver', 'host', 'driver'),
+        model_base.BASEV2.__table_args__
+    )
+
 
 class DistributedPortBinding(model_base.BASEV2):
     """Represent binding-related state of a Distributed Router(DVR, HA) port.
