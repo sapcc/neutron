@@ -244,13 +244,13 @@ class TestDesignateDriver(base.BaseTestCase):
 
     def test_delete_record_set_zone_not_found(self):
         self.client.recordsets.list.side_effect = d_exc.NotFound
-        self.all_projects_client.recordsets.list.side_effect = d_exc.NotFound
+        self.admin_client.recordsets.list.side_effect = d_exc.NotFound
 
         # custom patched delete_record_set method
         # Not raising an exception when the domain is not found is
         # expected behaviour
         res = self.driver.delete_record_set(self.context, 'example.test.',
-                                    'test', ['192.168.0.10'])
+                                            'test', ['192.168.0.10'])
         self.assertIsNone(res)
 
     def test_ipv4_ptr_is_misconfigured(self):
