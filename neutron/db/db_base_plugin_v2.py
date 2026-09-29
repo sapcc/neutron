@@ -40,10 +40,10 @@ from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
 from oslo_config import cfg
 from oslo_db import exception as os_db_exc
+from oslo_db.sqlalchemy import utils as sa_utils
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import uuidutils
-from oslo_db.sqlalchemy import utils as sa_utils
 from sqlalchemy import and_
 from sqlalchemy import exc as sql_exc
 from sqlalchemy import func
@@ -1725,8 +1725,9 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             if vif_type is not None:
                 query = query.filter(Port.port_bindings.any(vif_type=vif_type))
             if mac_address:
-                sanitized_macs = [converters.convert_to_sanitized_mac_address(x)
-                                  for x in mac_address]
+                sanitized_macs = [
+                    converters.convert_to_sanitized_mac_address(x)
+                    for x in mac_address]
                 query = query.filter(
                     func.lower(Port.mac_address).in_(sanitized_macs))
             if ip_addresses or subnet_ids or ip_addresses_s:
@@ -1754,7 +1755,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         q_owned = (context.session.query(Port)
                    .filter(Port.project_id == scope_project))
 
-        # Branch 2: ports on a project-owned network  →  ix_ports_network_id_device_owner
+        # Branch 2: ports on a project-owned network
+        # uses ix_ports_network_id_device_owner
         q_via_net = (context.session.query(Port)
                      .filter(Port.network_id.in_(network_ids)))
 
@@ -1764,11 +1766,13 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 q_via_net = q_via_net.options(lazyload(field))
 
         q_owned = model_query.apply_filters(q_owned, Port, filters, context)
-        q_via_net = model_query.apply_filters(q_via_net, Port, filters, context)
+        q_via_net = model_query.apply_filters(
+            q_via_net, Port, filters, context)
 
         if vif_type is not None:
             q_owned = q_owned.filter(Port.port_bindings.any(vif_type=vif_type))
-            q_via_net = q_via_net.filter(Port.port_bindings.any(vif_type=vif_type))
+            q_via_net = q_via_net.filter(
+                Port.port_bindings.any(vif_type=vif_type))
         if mac_address:
             sanitized_macs = [converters.convert_to_sanitized_mac_address(x)
                               for x in mac_address]
@@ -1781,10 +1785,12 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             q_via_net = q_via_net.join(Port.fixed_ips)
         if ip_addresses:
             q_owned = q_owned.filter(IPAllocation.ip_address.in_(ip_addresses))
-            q_via_net = q_via_net.filter(IPAllocation.ip_address.in_(ip_addresses))
+            q_via_net = q_via_net.filter(
+                IPAllocation.ip_address.in_(ip_addresses))
         if subnet_ids:
             q_owned = q_owned.filter(IPAllocation.subnet_id.in_(subnet_ids))
-            q_via_net = q_via_net.filter(IPAllocation.subnet_id.in_(subnet_ids))
+            q_via_net = q_via_net.filter(
+                IPAllocation.subnet_id.in_(subnet_ids))
 
         # UNION deduplicates ports that appear in both branches (owned by the
         # project AND on a project-owned network).
