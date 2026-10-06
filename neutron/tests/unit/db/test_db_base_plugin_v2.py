@@ -1630,6 +1630,97 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                         tenant_id='tenant_1', as_admin=True,
                         query_params='project_id=tenant_1')
 
+    def test_get_ports_count_admin_with_project_filter(self):
+        """get_ports_count under the admin+project_id UNION path.
+
+        An admin passing project_id=tenant_1 takes the UNION rewrite path.
+        The count must include both ports owned by tenant_1 AND ports on
+        networks owned by tenant_1 (network-visible ports).
+        """
+        with self.network(tenant_id='tenant_1') as net:
+            with self.subnet(net) as sub:
+                with self.port(sub, project_id='tenant_1'), \
+                     self.port(sub, project_id='tenant_2', is_admin=True):
+                    pl = directory.get_plugin()
+                    admin_ctx = context.Context(
+                        '', 'tenant_1', is_admin=True,
+                        roles=['admin', 'member', 'reader'])
+                    count = pl.get_ports_count(
+                        admin_ctx, filters={'project_id': ['tenant_1']})
+                    # Branch 1: port owned by tenant_1
+                    # Branch 2: port owned by tenant_2 on tenant_1's network
+                    self.assertEqual(2, count)
+
+    def test_list_ports_service_role_sees_all_projects(self):
+        """Service-role (advsvc) context bypasses UNION and sees all ports.
+
+        The UNION rewrite only applies when model_query_scope_is_project
+        returns True. A service-role context has is_service_role=True,
+        so it must fall through to the original get_collection_query path
+        and see ports from all projects.
+        """
+        with self.network(tenant_id='tenant_1') as net1, \
+                self.network(tenant_id='tenant_2') as net2:
+            with self.subnet(net1) as sub1, self.subnet(net2) as sub2:
+                with self.port(sub1, project_id='tenant_1') as p1, \
+                     self.port(sub2, project_id='tenant_2',
+                               is_admin=True) as p2:
+                    req = self._service_req('GET', 'ports')
+                    res = req.get_response(self.api)
+                    ports = self.deserialize(self.fmt, res)['ports']
+                    port_ids = {p['id'] for p in ports}
+                    self.assertIn(p1['port']['id'], port_ids)
+                    self.assertIn(p2['port']['id'], port_ids)
+
+    def test_list_ports_admin_multiple_project_id_filter(self):
+        """Admin with multiple project_id values falls back to old path.
+
+        The UNION rewrite is only applied when len(project_id) == 1.
+        An admin passing project_id=A&project_id=B must fall through to
+        the original get_collection_query path and get ports from both.
+        """
+        with self.network(tenant_id='tenant_1') as net1, \
+                self.network(tenant_id='tenant_2') as net2:
+            with self.subnet(net1) as sub1, self.subnet(net2) as sub2:
+                with self.port(sub1, project_id='tenant_1') as p1, \
+                     self.port(sub2, project_id='tenant_2',
+                               is_admin=True) as p2:
+                    res = self.new_list_request(
+                        'ports', params='project_id=tenant_1'
+                                        '&project_id=tenant_2',
+                        as_admin=True)
+                    ports = self.deserialize(
+                        self.fmt, res.get_response(self.api))['ports']
+                    port_ids = {p['id'] for p in ports}
+                    self.assertIn(p1['port']['id'], port_ids)
+                    self.assertIn(p2['port']['id'], port_ids)
+
+    def test_list_ports_for_network_owner_paginated_reverse(self):
+        """Reverse pagination across network-owner-visible foreign ports.
+
+        tenant_1 owns the network; ports belong to both tenant_1 and
+        tenant_2. page_reverse=True must return the same ports in reverse
+        order with no gaps or duplicates.
+        """
+        if self._skip_native_pagination:
+            self.skipTest("Skip test for not implemented pagination feature")
+        with self.network(tenant_id='tenant_1') as network:
+            with self.subnet(network, tenant_id='tenant_1') as subnet:
+                with self.port(subnet, project_id='tenant_1',
+                               mac_address='00:00:00:00:00:01') as p1, \
+                     self.port(subnet, project_id='tenant_2',
+                               is_admin=True,
+                               mac_address='00:00:00:00:00:02') as p2, \
+                     self.port(subnet, project_id='tenant_1',
+                               mac_address='00:00:00:00:00:03') as p3, \
+                     self.port(subnet, project_id='tenant_2',
+                               is_admin=True,
+                               mac_address='00:00:00:00:00:04') as p4:
+                    self._test_list_with_pagination_reverse(
+                        'port', (p1, p2, p3, p4),
+                        ('mac_address', 'asc'), 2, 2,
+                        tenant_id='tenant_1')
+
     def test_list_ports_with_sort_native(self):
         if self._skip_native_sorting:
             self.skipTest("Skip test for not implemented sorting feature")
