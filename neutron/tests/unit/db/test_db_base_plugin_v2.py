@@ -1728,13 +1728,14 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
         _get_ports_query bypasses _port_query_hook and _port_filter_hook and
         re-implements their visibility logic as a SQL UNION. This test runs
         both paths against the same data and asserts they agree. It will fail
-        if either hook is changed without a matching update to _get_ports_query.
+        if either hook is changed without a matching update to
+        _get_ports_query.
 
         Scenario:
           net_own   (tenant_1) — p_own_own (tenant_1), p_net_own (tenant_2)
-          net_other (tenant_2) — p_invisible (tenant_2)   [tenant_1 cannot see]
+          net_other (tenant_2) — p_invisible (tenant_2)  [tenant_1 cannot see]
           net_shared (tenant_2, shared) — p_own_shared (tenant_1),
-                                          p_net_shared (tenant_2)  [not visible]
+                                          p_net_shared (tenant_2) [not visible]
         Expected: tenant_1 sees p_own_own, p_net_own, p_own_shared
         """
         with self.network(tenant_id='tenant_1') as net_own, \
@@ -1744,14 +1745,14 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             with self.subnet(net_own) as sub_own, \
                  self.subnet(net_other) as sub_other, \
                  self.subnet(net_shared) as sub_shared:
-                with self.port(sub_own, project_id='tenant_1') as _p1, \
+                with self.port(sub_own, project_id='tenant_1'), \
                      self.port(sub_own, project_id='tenant_2',
-                               is_admin=True) as _p2, \
+                               is_admin=True), \
                      self.port(sub_other, project_id='tenant_2',
-                               is_admin=True) as _p3, \
-                     self.port(sub_shared, project_id='tenant_1') as _p4, \
+                               is_admin=True), \
+                     self.port(sub_shared, project_id='tenant_1'), \
                      self.port(sub_shared, project_id='tenant_2',
-                               is_admin=True) as _p5:
+                               is_admin=True):
                     ctx = context.Context('', 'tenant_1',
                                          roles=['member', 'reader'])
                     pl = directory.get_plugin()
