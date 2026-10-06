@@ -27,6 +27,7 @@ from neutron_lib.callbacks import registry
 from neutron_lib import constants
 from neutron_lib import context
 from neutron_lib.db import api as db_api
+from neutron_lib.db import model_query
 from neutron_lib.db import standard_attr
 from neutron_lib import exceptions as lib_exc
 from neutron_lib import fixture
@@ -1720,6 +1721,59 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                         'port', (p1, p2, p3, p4),
                         ('mac_address', 'asc'), 2, 2,
                         tenant_id='tenant_1')
+
+    def test_port_visibility_consistent_with_hooks(self):
+        """UNION path and hook-driven path must return the same port sets.
+
+        _get_ports_query bypasses _port_query_hook and _port_filter_hook and
+        re-implements their visibility logic as a SQL UNION. This test runs
+        both paths against the same data and asserts they agree. It will fail
+        if either hook is changed without a matching update to _get_ports_query.
+
+        Scenario:
+          net_own   (tenant_1) — p_own_own (tenant_1), p_net_own (tenant_2)
+          net_other (tenant_2) — p_invisible (tenant_2)   [tenant_1 cannot see]
+          net_shared (tenant_2, shared) — p_own_shared (tenant_1),
+                                          p_net_shared (tenant_2)  [not visible]
+        Expected: tenant_1 sees p_own_own, p_net_own, p_own_shared
+        """
+        with self.network(tenant_id='tenant_1') as net_own, \
+             self.network(tenant_id='tenant_2') as net_other, \
+             self.network(shared=True, as_admin=True,
+                          tenant_id='tenant_2') as net_shared:
+            with self.subnet(net_own) as sub_own, \
+                 self.subnet(net_other) as sub_other, \
+                 self.subnet(net_shared) as sub_shared:
+                with self.port(sub_own, project_id='tenant_1') as _p1, \
+                     self.port(sub_own, project_id='tenant_2',
+                               is_admin=True) as _p2, \
+                     self.port(sub_other, project_id='tenant_2',
+                               is_admin=True) as _p3, \
+                     self.port(sub_shared, project_id='tenant_1') as _p4, \
+                     self.port(sub_shared, project_id='tenant_2',
+                               is_admin=True) as _p5:
+                    ctx = context.Context('', 'tenant_1',
+                                         roles=['member', 'reader'])
+                    pl = directory.get_plugin()
+
+                    # UNION path (via _get_ports_query)
+                    union_ids = {p['id'] for p in pl.get_ports(ctx)}
+
+                    # Hook-driven reference path (calls _port_query_hook and
+                    # _port_filter_hook directly via get_collection_query)
+                    with db_api.CONTEXT_READER.using(ctx):
+                        hook_ids = {
+                            p.id for p in
+                            model_query.get_collection_query(
+                                ctx, models_v2.Port).all()
+                        }
+
+                    self.assertEqual(
+                        hook_ids, union_ids,
+                        "_get_ports_query UNION result diverges from the "
+                        "hook-driven reference. If _port_query_hook or "
+                        "_port_filter_hook changed, mirror the change in "
+                        "NeutronDbPluginV2._get_ports_query.")
 
     def test_list_ports_with_sort_native(self):
         if self._skip_native_sorting:
