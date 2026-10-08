@@ -30,6 +30,7 @@ from neutron.agent.linux.dhcp import DhcpLocalProcess
 from neutron.agent.linux.dhcp import Dnsmasq
 from neutron.agent.linux.dhcp import SIGTERM_TIMEOUT
 from neutron.agent.linux import external_process
+from neutron.common.sci_netconfig import SCINetworkSettings
 from neutron.common import utils as common_utils
 
 LOG = logging.getLogger(__name__)
@@ -77,6 +78,9 @@ class ProcessWrapper:
 
         self.conf = conf
         self.network = network
+
+        settings_dict = getattr(self.network, 'sci_config', None)
+        self._sci_netconfig = SCINetworkSettings.model_validate(settings_dict)
         self._process_monitor = process_monitor
         self._process_uuid = process_uuid
         self._network_conf_dir = net_conf_dir
@@ -274,7 +278,9 @@ class WrapUnbound(ProcessWrapper):
 
     def _reload_callback(self):
         """Returns a (shell) command to execute when unbound should reload.
-           This is _not_ doing the actual reloading.
+           We are reloading unbound via control socket command, this method
+           is only used should that fail. We have to provide a callback or
+           upstream code will send a signal (which would kill unbound).
         """
         cmd = [
                'unbound-control',
@@ -354,7 +360,8 @@ class WrapUnbound(ProcessWrapper):
         else:
             dns_servers = self.conf.dnsmasq_dns_servers
 
-        return dns_servers
+        # check for the new config on the network and apply if present
+        return self._sci_netconfig.get_dns_custom_upstreams(dns_servers)
 
     def _send_unbound_ctrl(self, cmd, limit=1024, timeout=30,
                            limit_fatal=False
