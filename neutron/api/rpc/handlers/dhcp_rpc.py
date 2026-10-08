@@ -40,6 +40,7 @@ from oslo_utils import excutils
 import yaml
 
 from neutron._i18n import _
+from neutron.common.sci_netconfig import SCINetworkSettings
 from neutron.common import utils
 from neutron.db import provisioning_blocks
 from neutron.extensions import segment as segment_ext
@@ -251,6 +252,29 @@ class CustomNetworkConfigurator:
 
         if not custom_config:
             return
+
+        # new network configuration / settings transport mechanism.
+        # TODO(mutax): custom_config will get replaced in the future and we
+        #  want to use SCINetworkSettings only.
+
+        dns_custom_upstreams = None
+        ntp_servers = None
+
+        if custom_config.dns_custom_upstreams:
+            dns_custom_upstreams = list(custom_config.dns_custom_upstreams)
+
+        if custom_config.ntp_servers:
+            ntp_servers = list(custom_config.ntp_servers)
+
+        network_settings = SCINetworkSettings(
+                dns_custom_upstreams=dns_custom_upstreams,
+                ntp_servers=ntp_servers,
+                dns_query_logging=custom_config.dns_ednslogging_enabled,
+        )
+
+        network_dict['sci_config'] = network_settings.model_dump()
+
+        # support for legacy config settings:
 
         network_dict['dns_ednslogging_enabled'] = (
             custom_config.dns_ednslogging_enabled)
