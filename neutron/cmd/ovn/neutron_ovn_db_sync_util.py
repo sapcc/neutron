@@ -197,10 +197,12 @@ def main():
                       cfg.CONF.ml2.mechanism_drivers)
             return
         cfg.CONF.set_override('mechanism_drivers', ['ovn-sync'], 'ml2')
+        # SCI: we disable hardcoded OVN l3 plugins, so db-sync-util won't
+        # try to sync routers/router ports and assign them to ovn gateways.
         conf.service_plugins = [
-            'neutron.services.ovn_l3.plugin.OVNL3RouterPlugin',
+            # 'neutron.services.ovn_l3.plugin.OVNL3RouterPlugin',
             'neutron.services.segments.plugin.Plugin',
-            'port_forwarding',
+            # 'port_forwarding',
             'qos'
         ]
         extension_drivers = list(set(cfg.CONF.ml2.extension_drivers + ['qos']))

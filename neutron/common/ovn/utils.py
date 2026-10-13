@@ -347,7 +347,10 @@ def is_lsp_up(lsp):
 
 
 def is_snat_enabled(router):
-    return router.get(l3.EXTERNAL_GW_INFO, {}).get('enable_snat', True)
+    router = router.get(l3.EXTERNAL_GW_INFO, {})
+    if not router:
+        return True
+    return router.get('enable_snat', True)
 
 
 def is_port_security_enabled(port):

@@ -474,8 +474,10 @@ class LogicalSwitchPortCreateEvent(row_event.RowEvent):
     def run(self, event, row, old):
         if utils.is_lsp_up(row) and utils.is_lsp_enabled(row):
             self.driver.set_port_status_up(row.name)
-        else:
-            self.driver.set_port_status_down(row.name)
+        # SCI: don't set explicit down status for ports that just got created
+        # because the port could be bound by another driver
+        # else:
+        #     self.driver.set_port_status_down(row.name)
 
 
 class LogicalSwitchPortUpdateUpEvent(row_event.RowEvent):
