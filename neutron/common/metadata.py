@@ -254,6 +254,27 @@ class MetadataProxyHandlerBaseSocketServer(
             title = '503 Service Unavailable'
             return encode_http_reponse(title, title, msg)
 
+        # Log the proxied request + result in a parsable way
+        LOG.info('Metadata request - method: %(method)s path: "%(path)s" '
+                 'status: %(status)s client-ip: %(client_ip)s '
+                 'project-id: %(project_id)s os-network-id: %(os_network_id)s '
+                 'os-router-id: %(os_router_id)s '
+                 'os-instance-id: %(os_instance_id)s '
+                 'req-duration: %(req_duration)s '
+                 'user-agent: "%(user_agent)s"',
+            {
+                'method': req.method,
+                'path': req.url[len(req.host_url):],
+                'status': resp.status_code,
+                'client_ip': headers['X-Forwarded-For'],
+                'project_id': project_id,
+                'os_network_id': req.headers.get('X-Neutron-Network-ID'),
+                'os_router_id': req.headers.get('X-Neutron-Router-ID'),
+                'os_instance_id': instance_id,
+                'req_duration': resp.elapsed.total_seconds(),
+                'user_agent': req.headers.get('User-Agent'),
+            })
+
         if resp.status_code == 200:
             return self._http_response(resp, req)
         if resp.status_code == 403:

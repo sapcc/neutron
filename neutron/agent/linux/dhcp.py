@@ -17,6 +17,7 @@ import abc
 import collections
 import copy
 import io
+import ipaddress
 import itertools
 import os
 import re
@@ -42,6 +43,7 @@ from neutron.agent.linux import external_process
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
 from neutron.cmd import runtime_checks as checks
+from neutron.cmd.sanity import checks as sanity_checks
 from neutron.common.ovn import constants as ovn_constants
 from neutron.common.ovn import utils as ovn_utils
 from neutron.common import utils as common_utils
@@ -425,6 +427,7 @@ class Dnsmasq(DhcpLocalProcess):
 
     _IS_DHCP_RELEASE6_SUPPORTED = None
     _IS_HOST_TAG_SUPPORTED = None
+    _IS_UMBRELLA_SUPPORTED = None
 
     @classmethod
     def check_version(cls):
@@ -468,6 +471,7 @@ class Dnsmasq(DhcpLocalProcess):
             ]
 
         possible_leases = 0
+        enable_ra = False
         for subnet in self._get_all_subnets(self.network):
             mode = None
             # if a subnet is specified to have dhcp disabled
@@ -484,6 +488,9 @@ class Dnsmasq(DhcpLocalProcess):
                                   constants.DHCPV6_STATELESS] or
                         not addr_mode and not ra_mode):
                     mode = 'static'
+                if addr_mode == constants.DHCPV6_STATEFUL and \
+                        ra_mode in (constants.DHCPV6_STATEFUL, None):
+                    enable_ra = True
 
             cidr = netaddr.IPNetwork(subnet.cidr)
 
@@ -520,6 +527,12 @@ class Dnsmasq(DhcpLocalProcess):
         cmd.append('--dhcp-lease-max=%d' %
                    min(possible_leases, self.conf.dnsmasq_lease_max))
 
+        if self.conf.enable_router_advertisements and enable_ra:
+            LOG.debug("Enabling ra in dnsmasq for network %s", self.network.id)
+            cmd.append('--enable-ra')
+            iface_name = self.interface_name or '*'
+            cmd.append(f'--ra-param={iface_name},0,0')
+
         if self.conf.dhcp_renewal_time > 0:
             cmd.append('--dhcp-option-force=option:T1,%ds' %
                        self.conf.dhcp_renewal_time)
@@ -533,7 +546,57 @@ class Dnsmasq(DhcpLocalProcess):
 
         cmd.append('--conf-file=%s' %
                    (self.conf.dnsmasq_config_file.strip() or '/dev/null'))
-        for server in self.conf.dnsmasq_dns_servers:
+
+        # check if the network has custom NTP servers set,
+        # or fallback to the configuration defaults (if they are set)
+        ntp_servers = getattr(self.network, 'ntp_servers',
+                              self.conf.dnsmasq_ntp_servers)
+
+        if ntp_servers:
+            # only if we have ntp servers, append the option.
+            # note that if the option is present in the config file, the config
+            # file will take precedence!
+            servers = []
+            for server in ntp_servers:
+                try:
+                    address = ipaddress.ip_address(server)
+                    if address.version == 4:
+                        servers.append(address.compressed)
+                    else:
+                        LOG.error('Invalid NTP server "%s" for network %s'
+                                  ' DHCP option 42 only supports IPv4',
+                                  server, self.network.id)
+                except ValueError:
+                    LOG.error('Invalid NTP server "%s" for network %s',
+                              server, self.network.id)
+
+            if servers:
+                servers = ",".join(servers)
+                LOG.debug("Adding NTP servers %s for network %s",
+                          servers,
+                          self.network.id)
+                cmd.append(f'--dhcp-option=42,{servers}')
+            else:
+                LOG.warning('No valid NTP servers in config for network %s',
+                            self.network.id)
+
+        # if the network has custom upstreams set, we will use them instead
+        if hasattr(self.network, 'dns_custom_upstreams'):
+            # Do some input validation on the data we got via rpc call, to
+            # avoid dnsmasq not starting - worst case is we have no dns, but
+            # at least dhcp is working. if all servers are wrong. Should not
+            # happen as we are doing validation on the server side as well.
+            dns_servers = []
+            for server in self.network.dns_custom_upstreams:
+                try:
+                    dns_servers.append(ipaddress.ip_address(server).compressed)
+                except ValueError:
+                    LOG.error('Invalid DNS server "%s" for network %s',
+                              server, self.network.id)
+        else:
+            dns_servers = self.conf.dnsmasq_dns_servers
+
+        for server in dns_servers:
             cmd.append('--server=%s' % server)
 
         if self.conf.dns_domain:
@@ -556,6 +619,20 @@ class Dnsmasq(DhcpLocalProcess):
                 cmd.append('--log-queries')
                 cmd.append('--log-dhcp')
                 cmd.append('--log-facility=%s' % log_filename)
+
+        edns_fingerprinting_enabled = self.conf.edns_client_fingerprint
+
+        if hasattr(self.network, 'dns_ednslogging_enabled'):
+            if not isinstance(self.network.dns_ednslogging_enabled, bool):
+                sval = str(self.network.dns_ednslogging_enabled).lower()
+                self.network.dns_ednslogging_enabled = sval in ('yes', 'true')
+            edns_fingerprinting_enabled = self.network.dns_ednslogging_enabled
+
+        # fingerprint the client (network id + client IP)
+        if edns_fingerprinting_enabled:
+            cmd.append('--add-cpe-id=%s' % self.network.id)
+            if self._is_dnsmasq_umbrella_supported():
+                cmd.append('--umbrella')
 
         return cmd
 
@@ -598,6 +675,13 @@ class Dnsmasq(DhcpLocalProcess):
             self._IS_HOST_TAG_SUPPORTED = checks.dnsmasq_host_tag_support()
 
         return self._IS_HOST_TAG_SUPPORTED
+
+    def _is_dnsmasq_umbrella_supported(self):
+        if self._IS_UMBRELLA_SUPPORTED is None:
+            self._IS_UMBRELLA_SUPPORTED = (
+                sanity_checks.dnsmasq_umbrella_supported())
+
+        return self._IS_UMBRELLA_SUPPORTED
 
     def _release_lease(self, mac_address, ip, ip_version, client_id=None,
                        server_id=None, iaid=None):
@@ -1493,6 +1577,8 @@ class Dnsmasq(DhcpLocalProcess):
 
 class DeviceManager:
 
+    NNS_RESOLVCONF_PATH = "/etc/netns/"
+
     def __init__(self, conf, plugin):
         self.conf = conf
         self.plugin = plugin
@@ -1519,7 +1605,19 @@ class DeviceManager:
         if gateway:
             gateway = gateway.get('gateway')
 
+        # sort subnets by if they have their gateway ip present on a port
+        # and then by subnet created time
+        subnets_extended = []
         for subnet in network.subnets:
+            gw_ip_on_port = False
+            if subnet.gateway_ip:
+                gw_ip_on_port = any(fixed_ip.ip_address == subnet.gateway_ip
+                                    for port in network.ports
+                                    for fixed_ip in port.fixed_ips)
+            subnets_extended.append((subnet, gw_ip_on_port))
+        subnets_extended.sort(key=lambda sn: (not sn[1], sn[0].created_at))
+
+        for subnet, gw_ip_on_port in subnets_extended:
             skip_subnet = (
                 subnet.ip_version != ip_version or
                 not subnet.enable_dhcp or
@@ -1547,6 +1645,12 @@ class DeviceManager:
                           'on net %(n)s to %(ip)s',
                           {'n': network.id, 'ip': subnet.gateway_ip,
                            'version': ip_version})
+                if not gw_ip_on_port:
+                    LOG.warning('No port with gateway ip found for '
+                                'IPv%(version)s gateway on '
+                                'net %(n)s for %(ip)s',
+                                {'n': network.id, 'ip': subnet.gateway_ip,
+                                 'version': ip_version})
 
                 # Check for and remove the on-link route for the old
                 # gateway being replaced, if it is outside the subnet
@@ -1836,6 +1940,11 @@ class DeviceManager:
             ip_lib.IPWrapper().ensure_namespace(network.namespace)
             ip_lib.set_ip_nonlocal_bind_for_namespace(network.namespace, 1,
                                                       root_namespace=True)
+            # We should now have a network namespace, lets configure
+            # it to use the locally running dnsmasq for DNS
+            if self.conf.netns_resolvconf:
+                self._write_resolvconf(network.namespace)
+
         if netutils.is_ipv6_enabled():
             self.driver.configure_ipv6_ra(network.namespace, 'default',
                                           constants.ACCEPT_RA_DISABLED)
@@ -1926,3 +2035,51 @@ class DeviceManager:
         iptables_mgr.ipv4['mangle'].add_rule('POSTROUTING', ipv4_rule)
         iptables_mgr.ipv6['mangle'].add_rule('POSTROUTING', ipv6_rule)
         iptables_mgr.apply()
+
+    def _write_resolvconf(self, netns):
+        rconf_path = f"{self.NNS_RESOLVCONF_PATH}/{netns}"
+
+        try:
+            os.makedirs(rconf_path, exist_ok=True)
+        except OSError as err:
+            LOG.error("Failed to create directory '%s' "
+                      "for resolv.conf in namespace '%s' -- %s",
+                      rconf_path, netns, err)
+            return
+
+        try:
+            with open(f"{rconf_path}/resolv.conf", "w") as rcnf:
+
+                rcnf.write("# autogenerated by neutron dhcp_agent\n"
+                           f"# for namespace {netns}\n")
+
+                if self.conf.netns_resolvconf_options:
+                    rcnf.write("options "
+                               f"{self.conf.netns_resolvconf_options}\n")
+
+                cfg_search = self.conf.netns_resolvconf_search
+
+                if cfg_search is None:
+                    # only if the option is not set,
+                    # use our (dynamic) default
+                    cfg_search = self.conf.dns_domain
+
+                # This allows the admin to skip search domains by
+                # configuring an empty string:
+                if cfg_search:
+                    rcnf.write(f"search {cfg_search}\n")
+
+                cfg_nameservers = self.conf.netns_resolvconf_nameservers
+
+                if cfg_nameservers is None:
+                    cfg_nameservers = []
+                    if netutils.is_ipv6_enabled():
+                        cfg_nameservers.append('::1')
+                    cfg_nameservers.append('127.0.0.1')
+
+                for nameserver in cfg_nameservers:
+                    rcnf.write(f"nameserver {nameserver}\n")
+
+        except (OSError, ValueError) as err:
+            LOG.error("Failed to create resolv.conf in namespace '%s' -- %s",
+                      netns, err)

@@ -55,9 +55,24 @@ RPC_EXTRA_OPTS = [
                       'call.')),
 ]
 
+DNSSETTINGS_CONF_SECTION = 'customdns'
+DNSSETTINGS_OPTS = [
+    cfg.BoolOpt('enabled',
+                default=False,
+                help=_("Enable domain specific DNS settings.")),
+    cfg.StrOpt('config_file', default=None,
+               help=_("Path to yaml config file for OpenStack domain "
+                      "or project specific DNS settings.")
+               ),
+]
+
 
 def register_service_opts(opts, conf=cfg.CONF):
     conf.register_opts(opts)
+
+
+def register_dns_opts(opts, conf=cfg.CONF):
+    conf.register_opts(opts, group=DNSSETTINGS_CONF_SECTION)
 
 
 def get_rpc_workers(conf=cfg.CONF):

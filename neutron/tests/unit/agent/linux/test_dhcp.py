@@ -24,6 +24,7 @@ from neutron_lib import constants
 from neutron_lib import exceptions
 from neutron_lib import fixture as lib_fixtures
 from oslo_config import cfg
+from oslo_config import fixture as fixture_config
 import oslo_messaging
 from oslo_utils import fileutils
 from oslo_utils import netutils
@@ -33,6 +34,7 @@ import testtools
 from neutron.agent.linux import dhcp
 from neutron.agent.linux import ip_lib
 from neutron.cmd import runtime_checks as checks
+from neutron.cmd.sanity import checks as sanity_checks
 from neutron.common.ovn import constants as ovn_const
 from neutron.common import utils as common_utils
 from neutron.conf.agent import common as config
@@ -458,6 +460,7 @@ class FakeV4Subnet(Dictable):
         self.host_routes = [FakeV4HostRoute()]
         self.dns_nameservers = ['8.8.8.8']
         self.subnetpool_id = 'kkkkkkkk-kkkk-kkkk-kkkk-kkkkkkkkkkkk'
+        self.created_at = "2023-10-27T05:21:46Z"
 
 
 class FakeV4Subnet2(FakeV4Subnet):
@@ -467,6 +470,7 @@ class FakeV4Subnet2(FakeV4Subnet):
         self.cidr = '192.168.1.0/24'
         self.gateway_ip = '192.168.1.1'
         self.host_routes = []
+        self.created_at = "2023-10-20T05:21:46Z"
 
 
 class FakeV4SubnetSegmentID(FakeV4Subnet):
@@ -597,6 +601,7 @@ class FakeV4SubnetNoDHCP:
         self.enable_dhcp = False
         self.host_routes = []
         self.dns_nameservers = []
+        self.created_at = "2023-10-26T05:21:46Z"
 
 
 class FakeV6SubnetDHCPStateful(Dictable):
@@ -611,6 +616,7 @@ class FakeV6SubnetDHCPStateful(Dictable):
         self.ipv6_ra_mode = None
         self.ipv6_address_mode = constants.DHCPV6_STATEFUL
         self.subnetpool_id = 'mmmmmmmm-mmmm-mmmm-mmmm-mmmmmmmmmmmm'
+        self.created_at = "2023-10-25T05:21:46Z"
 
 
 class FakeV6SubnetSlaac:
@@ -823,6 +829,14 @@ class FakeDualNetworkDualDHCP:
         self.id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
         self.subnets = [FakeV4Subnet(), FakeV4Subnet2()]
         self.ports = [FakePort1(), FakeRouterPort(), FakeRouterPort2()]
+        self.namespace = 'qdhcp-ns'
+
+
+class FakeDualNetworkDualDHCPOneRouter:
+    def __init__(self):
+        self.id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+        self.subnets = [FakeV4Subnet(), FakeV4Subnet2()]
+        self.ports = [FakePort1(), FakeRouterPort2()]
         self.namespace = 'qdhcp-ns'
 
 
@@ -1117,13 +1131,15 @@ class LocalChild(dhcp.DhcpLocalProcess):
 class TestConfBase(base.BaseTestCase):
     def setUp(self):
         super().setUp()
-        self.conf = config.setup_conf()
-        self.conf.register_opts(base_config.core_opts)
-        self.conf.register_opts(dhcp_config.DHCP_OPTS)
-        self.conf.register_opts(dhcp_config.DNSMASQ_OPTS)
-        self.conf.register_opts(config.DHCP_PROTOCOL_OPTS)
-        config.register_external_process_opts(self.conf)
-        config.register_interface_driver_opts_helper(self.conf)
+        conf = config.setup_conf()
+        conf.register_opts(base_config.core_opts)
+        conf.register_opts(dhcp_config.DHCP_OPTS)
+        conf.register_opts(dhcp_config.DHCP_AGENT_OPTS)
+        conf.register_opts(dhcp_config.DNSMASQ_OPTS)
+        conf.register_opts(config.DHCP_PROTOCOL_OPTS)
+        config.register_external_process_opts(conf)
+        config.register_interface_driver_opts_helper(conf)
+        self.conf = self.useFixture(fixture_config.Config(conf)).conf
 
 
 class TestBase(TestConfBase):
@@ -1131,12 +1147,8 @@ class TestBase(TestConfBase):
         super().setUp()
         instance = mock.patch("neutron.agent.linux.dhcp.DeviceManager")
         self.mock_mgr = instance.start()
-        self.conf.register_opt(cfg.BoolOpt('enable_isolated_metadata',
-                                           default=True))
-        self.conf.register_opt(cfg.BoolOpt("force_metadata",
-                                           default=False))
-        self.conf.register_opt(cfg.BoolOpt('enable_metadata_network',
-                                           default=False))
+        # default is False, tests expect it to be True:
+        self.conf.set_override('enable_isolated_metadata', True)
         self.config_parse(self.conf)
         self.conf.set_override('state_path', '')
 
@@ -1634,7 +1646,186 @@ class TestDnsmasq(TestBase):
                           '--server=9.9.9.9',
                           '--domain=openstacklocal'])
 
-    def test_spawn_cfg_enable_dnsmasq_log(self):
+    def test_dnsmasq_umbrella_support_check(self):
+        with mock.patch('neutron.agent.linux.utils.execute') \
+                        as dnsmasq_version_mock:
+
+            # no umbrella support in 2.85 and below
+            dnsmasq_version_mock.return_value = "version 2.85"
+            self.assertFalse(sanity_checks.dnsmasq_umbrella_supported())
+
+            # umbrella support introduced in 2.86
+            dnsmasq_version_mock.return_value = "version 2.86"
+            self.assertTrue(sanity_checks.dnsmasq_umbrella_supported())
+
+    def test_spawn_cfg_edns_client_fingerprint_disabled(self):
+        self.conf.set_override('edns_client_fingerprint', False)
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal'])
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_edns_client_fingerprint_with_umbrella(self,
+            mock_umbrella_supported):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          '--add-cpe-id=%s' % network.id,
+                          '--umbrella'],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=False)
+    def test_spawn_cfg_edns_client_fingerprint_without_umbrella(self,
+            mock_umbrella_supported):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          '--add-cpe-id=%s' % network.id],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_edns_umbrella_override_per_network_notset(self, _mock):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+
+        # do not fail building a cmdline when attribute is missing
+        self.assertFalse(hasattr(network, 'dns_ednslogging_enabled'))
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          '--add-cpe-id=%s' % network.id,
+                          '--umbrella'],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_edns_umbrella_override_per_network_true(self, _mock):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+
+        network.dns_ednslogging_enabled = True
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          '--add-cpe-id=%s' % network.id,
+                          '--umbrella'],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_edns_umbrella_override_per_network_false(self, _mock):
+        self.conf.set_override('edns_client_fingerprint', True)
+        network = FakeDualNetwork()
+
+        network.dns_ednslogging_enabled = False
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_dns_upstreams_override_per_network_notset(self):
+        network = FakeDualNetwork()
+        self.assertFalse(hasattr(network, 'dns_custom_upstreams'))
+        # do not fail building a cmdline when attribute is missing
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_dns_upstreams_override_per_network_set(self):
+        network = FakeDualNetwork()
+        network.dns_custom_upstreams = ['1.1.1.1', '8.8.8.8']
+        self._test_spawn(['--conf-file=',
+                          '--server=1.1.1.1', '--server=8.8.8.8',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_dns_upstreams_do_override_config(self):
+        self.conf.set_override('dnsmasq_local_resolv', True)
+        self.conf.set_override('dnsmasq_dns_servers', ['9.9.9.9'])
+        network = FakeDualNetwork()
+        network.dns_custom_upstreams = ['1.1.1.1', '8.8.8.8']
+
+        self._test_spawn(['--conf-file=',
+                          '--server=1.1.1.1', '--server=8.8.8.8',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_not_configured(self):
+        """ensure we still start up when no ntp servers are set in our
+        configuration and that no dhcp option is added.
+        """
+
+        network = FakeDualNetwork()
+
+        self._test_spawn(['--conf-file=',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_default_from_config(self):
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '192.0.2.4'])
+        network = FakeDualNetwork()
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.3,192.0.2.4',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_override_config(self):
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '192.0.2.4'])
+        network = FakeDualNetwork()
+        network.ntp_servers = ['192.0.2.1', '192.0.2.2']
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.1,192.0.2.2',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_ignore_ipv6_config(self):
+        """ensure we skip IPv6 addresses for dhcp option 42
+        from our default settings,
+        it only supports IPv4 addresses:
+        https://datatracker.ietf.org/doc/html/rfc2132#section-8.3
+        """
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '::1'])
+        network = FakeDualNetwork()
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.3',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    def test_spawn_cfg_ntp_servers_ignore_ipv6_rpc(self):
+        """ensure we skip IPv6 addresses for dhcp option 42
+        received via network config from the rpc server,
+        it only supports IPv4 addresses:
+        https://datatracker.ietf.org/doc/html/rfc2132#section-8.3
+        """
+        self.conf.set_override('dnsmasq_ntp_servers',
+                               ['192.0.2.3', '::1'])
+        network = FakeDualNetwork()
+        network.ntp_servers = ['192.0.2.1', '::1']
+
+        self._test_spawn(['--conf-file=',
+                          '--dhcp-option=42,192.0.2.1',
+                          '--domain=openstacklocal',
+                          ],
+                         network=network)
+
+    @mock.patch.object(sanity_checks,
+                       'dnsmasq_umbrella_supported', return_value=True)
+    def test_spawn_cfg_enable_dnsmasq_log(self, _mock):
         self.conf.set_override('dnsmasq_base_log_dir', '/tmp')
         network = FakeV4Network()
         dhcp_dns_log = \
@@ -1695,6 +1886,16 @@ class TestDnsmasq(TestBase):
         self.conf.set_override('dnsmasq_txt_record', txt_record)
         self._test_spawn(['--conf-file=', '--domain=openstacklocal'],
                          txt_record=txt_record)
+
+    def test_spawn_cfg_with_stateful_dhcpv6_and_ra_enabled(self):
+        self.conf.set_override('enable_router_advertisements', True)
+        network = FakeV6NetworkStatefulDHCPSameSubnetFixedIps()
+
+        self._test_spawn(['--enable-ra',
+                          '--ra-param=tap0,0,0',
+                          '--conf-file=',
+                          '--domain=openstacklocal',
+                          ], network)
 
     def _test_output_init_lease_file(self, timestamp):
         expected = [
@@ -3299,10 +3500,6 @@ class TestDeviceManager(TestConfBase):
     def _test_setup(self, load_interface_driver, ip_lib, use_gateway_ips):
         with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
             # Create DeviceManager.
-            self.conf.register_opt(cfg.BoolOpt('enable_isolated_metadata',
-                                               default=False))
-            self.conf.register_opt(cfg.BoolOpt('force_metadata',
-                                               default=False))
             plugin = mock.Mock()
             device = mock.Mock()
             mock_IPDevice.return_value = device
@@ -3379,8 +3576,8 @@ class TestDeviceManager(TestConfBase):
 
     def test_setup_v4_only_network(self):
         with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
-            self.conf.register_opt(cfg.BoolOpt('force_metadata',
-                                               default=True))
+            self.conf.set_override('force_metadata',
+                                   True)
             plugin = mock.Mock()
             device = mock.Mock()
             mock_IPDevice.return_value = device
@@ -3425,12 +3622,10 @@ class TestDeviceManager(TestConfBase):
                              force_metadata=False):
         with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
             # Create DeviceManager.
-            self.conf.register_opt(
-                cfg.BoolOpt('enable_isolated_metadata',
-                            default=enable_isolated_metadata))
-            self.conf.register_opt(
-                cfg.BoolOpt('force_metadata',
-                            default=force_metadata))
+            self.conf.set_override('enable_isolated_metadata',
+                                   enable_isolated_metadata)
+            self.conf.set_override('force_metadata',
+                                   force_metadata)
             plugin = mock.Mock()
             device = mock.Mock()
             mock_IPDevice.return_value = device
@@ -3498,10 +3693,6 @@ class TestDeviceManager(TestConfBase):
         """
         with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
             # Create DeviceManager.
-            self.conf.register_opt(
-                cfg.BoolOpt('enable_isolated_metadata', default=False))
-            self.conf.register_opt(
-                cfg.BoolOpt('force_metadata', default=False))
             plugin = mock.Mock()
             device = mock.Mock()
             mock_IPDevice.return_value = device
@@ -3555,6 +3746,17 @@ class TestDeviceManager(TestConfBase):
 
         with testtools.ExpectedException(oslo_messaging.RemoteError):
             dh.setup_dhcp_port(fake_network, None)
+
+    def test_prefer_subnet_with_gateway_ip_on_port_as_default_gateway(self):
+        with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
+            device = mock.Mock()
+            mock_IPDevice.return_value = device
+            device.route.get_gateway.return_value = None
+            plugin = mock.Mock()
+            mgr = dhcp.DeviceManager(self.conf, plugin)
+            network = FakeDualNetworkDualDHCPOneRouter()
+            mgr._set_default_route(network, "LOL")
+            device.route.add_gateway.assert_called_with("192.168.1.1")
 
 
 class TestDictModel(base.BaseTestCase):

@@ -75,6 +75,26 @@ DHCP_AGENT_OPTS = [
                       'This will only be invoked if the value is not 0. '
                       'If a network has N updates in X seconds then '
                       'it will reload once and not N times.')),
+    cfg.BoolOpt('netns_resolvconf', default=False,
+                help=_("Create a resolv.conf in each network namespace to use "
+                       "the local dnsmasq for DNS."
+                       )),
+    cfg.ListOpt('netns_resolvconf_nameservers',
+                help=_("List of DNS servers to be configured inside network "
+                       "namespaces. "
+                       "If not set uses ::1 (if IPv6 is enabled) and "
+                       "127.0.0.1 (always) by default.")),
+    cfg.StrOpt('netns_resolvconf_options',
+               default="timeout:2 no-tld-query edns0 attempts:5",
+               help=_("resolv.conf options inside network namespaces")),
+    cfg.StrOpt('netns_resolvconf_search',
+               default=None,
+               help=_("resolv.conf search domains inside network namespaces. "
+                      "If not set uses the dns_domain. Set to empty string "
+                      "to disable search parameter")),
+    cfg.IntOpt('dhcp_agent_check_interval', default=30,
+               help=_('Number of seconds between running '
+                      'the dhcp-agent-check for detecting missing networks')),
 ]
 
 DHCP_OPTS = [
@@ -92,6 +112,10 @@ DNSMASQ_OPTS = [
                 default=[],
                 help=_('Comma-separated list of the DNS servers which will be '
                        'used as forwarders.')),
+    cfg.ListOpt('dnsmasq_ntp_servers',
+                default=[],
+                help=_('Comma-separated list of NTP server IPs which will be '
+                       'distributed via DHCP option 42.')),
     cfg.StrOpt('dnsmasq_base_log_dir',
                help=_("Base log dir for dnsmasq logging. "
                       "The log contains DHCP and DNS log information and "
@@ -114,6 +138,14 @@ DNSMASQ_OPTS = [
                 help=_("Enable dhcp-host entry with list of addresses when "
                        "port has multiple IPv6 addresses in the same "
                        "subnet.")),
+    cfg.BoolOpt('edns_client_fingerprint', default=False,
+                help=_("Add the network id and client IP as an eDNS payload "
+                       "to each client DNS query sent to the DNS resolvers")),
+    cfg.BoolOpt('enable_router_advertisements', default=False,
+                help=_("Enable IPv6 router advertisements from dnsmasq. "
+                       "This only supplements DHCPv6 by announcing the "
+                       "network's prefix length and does not announce "
+                       "a default gateway.")),
     cfg.StrOpt('dnsmasq_txt_record', default='',
                help=_("Return a TXT DNS record "
                       "(option format: <name>[[,<text>],<text>]). "
@@ -124,8 +156,17 @@ DNSMASQ_OPTS = [
                       "longer strings are split into 255 character chunks."))
 ]
 
+DHCP_AGENT_STATE_OPTS = [
+    # we want this only for the dhcp-agent, so we are not adding that to
+    # AGENT_STATE_OPTS in register_agent_state_opts_helper()
+    cfg.BoolOpt('scheduling_disabled', default=False,
+                help="No (new) networks will be scheduled automatically "
+                     "on this dhcp-agent."),
+]
+
 
 def register_agent_dhcp_opts(cfg=cfg.CONF):
+    cfg.register_opts(DHCP_AGENT_STATE_OPTS, 'AGENT')
     cfg.register_opts(DHCP_AGENT_OPTS)
     cfg.register_opts(DHCP_OPTS)
     cfg.register_opts(DNSMASQ_OPTS)

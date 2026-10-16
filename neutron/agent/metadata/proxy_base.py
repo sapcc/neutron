@@ -221,7 +221,7 @@ class MetadataProxyHandlerBase(metaclass=abc.ABCMeta):
             return webob.exc.HTTPServiceUnavailable(explanation=explanation)
 
         if resp.status_code == 200:
-            req.response.content_type = resp.headers['content-type']
+            req.response.content_type = resp.headers.get('content-type')
             req.response.body = resp.content
             LOG.debug(str(resp))
             return req.response

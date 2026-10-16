@@ -2298,21 +2298,37 @@ class TestMl2PluginOnly(Ml2PluginV2TestCase):
             self.context, port_id))
 
     @mock.patch.object(ml2_db, 'clear_binding_levels')
-    @mock.patch.object(port_obj.PortBinding, 'delete_objects')
     def test_delete_port_binding_delete_binding_and_levels(
             self,
-            clear_bl_mock,
-            delete_port_binding_mock):
-        port_id = uuidutils.generate_uuid()
+            clear_bl_mock):
         host = 'fake-host'
         plugin = directory.get_plugin()
-        plugin.delete_port_binding(self.context, host, port_id)
-        clear_bl_mock.assert_called_once_with(self.context,
-                                              port_id=port_id,
-                                              host=host)
-        delete_port_binding_mock.assert_called_once_with(self.context,
-                                                         host=host,
-                                                         port_id=port_id)
+        # mock port and binding to skip conditions introduced
+        # for the deletion of port bindings
+        host_arg = {portbindings.HOST_ID: host}
+        with self.port(device_owner='compute:xyz', is_admin=True,
+                       arg_list=(portbindings.HOST_ID,),
+                       **host_arg) as port:
+            port_id = port['port']['id']
+            # make binding in active so it can be deleted
+            with db_api.CONTEXT_WRITER.using(self.context):
+                port_binding = self.context.session.query(
+                    models.PortBinding).filter(
+                    models.PortBinding.port_id == port_id).one()
+                port_binding.status = constants.INACTIVE
+            # reset clear_binding_level made during creation
+            clear_bl_mock.reset_mock()
+
+            with mock.patch.object(port_obj.PortBinding,
+                            'delete_objects') as delete_port_binding_mock:
+                plugin.delete_port_binding(self.context, host, port_id)
+                clear_bl_mock.assert_called_once_with(self.context,
+                                                  port_id=port_id,
+                                                  host=host)
+                delete_port_binding_mock.assert_called_with(
+                                                        self.context,
+                                                        host=host,
+                                                        port_id=port_id)
 
     def test__validate_port_supports_multiple_bindings(self):
         plugin = directory.get_plugin()
@@ -2799,6 +2815,190 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
             # _notify_port_updated will still be called though it does
             # nothing due to the missing binding levels
             npu_mock.assert_called_once_with(ret_context)
+
+    def test__bind_port_if_needed_concurrent_calls_segment_cleanup(self):
+        """Parallel cleanup of network segments during a bind
+
+        A parallel task in the background deletes the network segment we're
+        trying to bind our port against. This creates a `DBReferenceError` on
+        `set_binding_levels()`.
+
+        We start with a Network having 2 segments, one base and one created by
+        our driver binding the first level. During the binding process, we
+        delete the second binding - which is referenced by the
+        PortBindingLevel, thus creating a DBReferenceError.
+        On retry, we check that the network of our context does not contain
+        that deleted segment again. This will trigger the driver binding the
+        first level to create a new segment - which we simulate here by
+        manually creating one and returning a PortBindingLevel for it.
+        """
+        # create a network
+        # create a subnet
+        # create a port in the subnet - the port is not bound
+        # create an additional segment in the network
+        # check that our PortContext.network.network_segments contains our
+        # segments
+        # convince _bind_port_if_needed() to use these 2 segments in a binding
+        # during the binding process, delete the level-1 binding
+        # expect a DBReferenceError from db.set_binding_levels()
+        # expect a retry
+        # expect the PortContext.network.network_segments to contain only one
+        # segment (level 0), i.e. segments were fetched from the DB again
+        # expect db.set_binding_levels() to be called twice
+        with self.network() as n:
+            network = n
+            network_id = n['network']['id']
+        with self.subnet(network=network) as sn:
+            subnet = sn
+
+        host = 'fake_host'
+        host_arg = {portbindings.HOST_ID: host}
+        with self.port(subnet=subnet, is_admin=True,
+                       arg_list=(portbindings.HOST_ID,),
+                       **host_arg) as p:
+            port = p
+
+        level_1_segment_1 = {driver_api.NETWORK_TYPE: 'vlan',
+                             driver_api.PHYSICAL_NETWORK: 'physnet1',
+                             driver_api.SEGMENTATION_ID: 1,
+                             'id': uuidutils.generate_uuid(),
+                             'network_id': network_id}
+        # used later on retry
+        level_1_segment_2 = {driver_api.NETWORK_TYPE: 'vlan',
+                             driver_api.PHYSICAL_NETWORK: 'physnet1',
+                             driver_api.SEGMENTATION_ID: 2,
+                             'id': uuidutils.generate_uuid(),
+                             'network_id': network_id}
+        segments_db.add_network_segment(
+                self.context, network['network']['id'], level_1_segment_1,
+                is_dynamic=True)
+
+        plugin = directory.get_plugin()
+        port_db = plugin._get_port(self.context, port['port']['id'])
+        binding = p_utils.get_port_binding_by_status_and_host(
+                        port_db.port_bindings,
+                        constants.ACTIVE)
+        # Generates port context to be used before the bind.
+        port_context = driver_context.PortContext(
+            plugin, self.context, port['port'],
+            plugin.get_network(self.context, network_id),
+            binding, None)
+
+        self.assertIsNotNone(next(
+            (x_ for x_ in port_context.network.network_segments
+             if x_['id'] == level_1_segment_1['id']),
+            None))
+
+        def _bind_port(port_context):
+            if _bind_port.call_count == 0:
+                # delete our level 1 segment from the DB
+                segments_db.delete_network_segment(
+                    self.context, level_1_segment_1['id'])
+
+                # use our level 1 segment and return bindings for it
+                level_0_segment_id = next(
+                    x_ for x_ in port_context.network.network_segments
+                    if x_['physical_network'] is None)['id']
+                port_context._clear_binding_levels()
+                binding_levels = [
+                    port_obj.PortBindingLevel(
+                        self.context,
+                        port_id=port['port']['id'],
+                        level=0,
+                        driver='fake_agent',
+                        segment_id=level_0_segment_id,
+                        host='fake_host'),
+                    port_obj.PortBindingLevel(
+                        self.context,
+                        port_id=port['port']['id'],
+                        level=1,
+                        driver='fake_agent',
+                        segment_id=level_1_segment_1['id'],
+                        host='fake_host')]
+                port_context._binding_levels = binding_levels
+                port_context._binding.vif_type = portbindings.VIF_TYPE_OVS
+
+                _bind_port.call_count += 1
+            elif _bind_port.call_count == 1:
+                # check that we do not see the old, deleted segment anymore
+                self.assertEqual(1, len(port_context.network.network_segments))
+                self.assertIsNone(next(
+                    (x_ for x_ in port_context.network.network_segments
+                     if x_['id'] == level_1_segment_1['id']),
+                    None))
+                # create a new level 1 segment
+                segments_db.add_network_segment(
+                    self.context, network['network']['id'], level_1_segment_2,
+                    is_dynamic=True)
+
+                # use our new level 1 segment in a binding
+                level_0_segment_id = next(
+                    x_ for x_ in port_context.network.network_segments
+                    if x_['physical_network'] is None)['id']
+                port_context._clear_binding_levels()
+                binding_levels = [
+                    port_obj.PortBindingLevel(
+                        self.context,
+                        port_id=port['port']['id'],
+                        level=0,
+                        driver='fake_agent',
+                        segment_id=level_0_segment_id,
+                        host='fake_host'),
+                    port_obj.PortBindingLevel(
+                        self.context,
+                        port_id=port['port']['id'],
+                        level=1,
+                        driver='fake_agent',
+                        segment_id=level_1_segment_2['id'],
+                        host='fake_host')]
+                port_context._binding_levels = binding_levels
+                port_context._binding.vif_type = portbindings.VIF_TYPE_OVS
+
+                _bind_port.call_count += 1
+            else:
+                raise Exception('Mocked _bind_port got called more than twice')
+
+        _bind_port.call_count = 0
+
+        orig_set_binding_levels = ml2_db.set_binding_levels
+
+        def _set_binding_levels(*args, **kwargs):
+            call_count = _set_binding_levels.call_count
+            _set_binding_levels.call_count += 1
+            try:
+                return_value = orig_set_binding_levels(*args, **kwargs)
+            except db_exc.RetryRequest:
+                if call_count != 0:
+                    raise AssertionError('Second call to set_binding_levels() '
+                        'raised RetryRequest')
+                else:
+                    raise
+            else:
+                if call_count == 0:
+                    raise AssertionError('First call to set_binding_levels() '
+                        'did not raise RetryRequest')
+
+            return return_value
+
+        _set_binding_levels.call_count = 0
+
+        with mock.patch('neutron.plugins.ml2.managers.MechanismManager.'
+                        'bind_port', side_effect=_bind_port), \
+            mock.patch('neutron.plugins.ml2.db.set_binding_levels',
+                       wraps=_set_binding_levels) as sbl_mock, \
+            mock.patch.object(mech_test.TestMechanismDriver,
+                    'update_port_precommit'), \
+            mock.patch.object(mech_test.TestMechanismDriver,
+                    'update_port_postcommit'):
+
+            plugin._bind_port_if_needed(port_context, allow_notify=True)
+            self.assertEqual(2, sbl_mock.call_count)
+
+        binding_level = next(
+            pbl for pbl in port_obj.PortBindingLevel.get_objects(
+                self.context, port_id=port['port']['id'], host='fake_host')
+            if pbl.level == 1)
+        self.assertEqual(level_1_segment_2['id'], binding_level.segment_id)
 
     def test__commit_port_binding_populating_with_binding_levels(self):
         port_vif_type = portbindings.VIF_TYPE_OVS

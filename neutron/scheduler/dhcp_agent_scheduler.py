@@ -68,13 +68,18 @@ class AutoScheduler:
 
             segments_on_host = {s.segment_id for s in segment_host_mapping}
 
+            agent_net_id = plugin.get_dhcp_agents_hosting_networks_mapping(
+                context, list(net_ids.keys()))
+            agents_of_net = collections.defaultdict(list)
+            for agent, net_id in agent_net_id:
+                agents_of_net[net_id].append(agent)
+
             for dhcp_agent in dhcp_agents:
                 if agent_utils.is_agent_down(dhcp_agent.heartbeat_timestamp):
                     LOG.warning('DHCP agent %s is not active', dhcp_agent.id)
                     continue
                 for net_id, is_routed_network in net_ids.items():
-                    agents = plugin.get_dhcp_agents_hosting_networks(
-                        context, [net_id])
+                    agents = agents_of_net[net_id]
                     segments_on_network = net_segment_ids[net_id]
                     if is_routed_network:
                         if len(segments_on_network & segments_on_host) == 0:
@@ -262,6 +267,28 @@ class DhcpFilter(base_resource_filter.BaseResourceFilter):
                             if agent['host'] in hostable_dhcp_hosts]
         return reachable_agents
 
+    def _filter_agents_where_scheduling_disabled(self, dhcp_agent_candidates):
+        """Remove agents from list where 'scheduling_disabled' is True."""
+
+        schedulable_agents = []
+        disabled_hosts = []
+
+        # We do not want any networks to get scheduled on agents
+        # where we have scheduling disabled. Filter those out.
+        for candidate in dhcp_agent_candidates:
+            if not candidate.configurations.get(
+                    'scheduling_disabled', False):
+                schedulable_agents.append(candidate)
+            else:
+                disabled_hosts.append(candidate.host)
+
+        if disabled_hosts:
+            LOG.debug('Ignoring agent hosts %s in DhcpFilter, '
+                      'scheduling of those dhcp-agents is disabled',
+                      ', '.join(disabled_hosts))
+
+        return schedulable_agents
+
     def _get_dhcp_agents_hosting_network(self, plugin, context, network):
         """Return dhcp agents hosting the given network or None if a given
            network is already hosted by enough number of agents.
@@ -315,6 +342,10 @@ class DhcpFilter(base_resource_filter.BaseResourceFilter):
             agent for agent in active_dhcp_agents
             if agent.id not in hosted_agent_ids and plugin.is_eligible_agent(
                 context, True, agent)]
+
+        hostable_dhcp_agents = self._filter_agents_where_scheduling_disabled(
+                hostable_dhcp_agents)
+
         hostable_dhcp_agents = self._filter_agents_with_network_access(
             plugin, context, network, hostable_dhcp_agents)
 
