@@ -621,6 +621,14 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                                     '--dport 546 '
                                     '-j DROP', comment=ic.DHCP_SPOOF)]
 
+    def _accept_inbound_icmpv4(self):
+        # Allow echo-request into the instance
+        icmpv4_rules = []
+        for icmp4_type in firewall.ICMPV4_ALLOWED_INGRESS_TYPES:
+            icmpv4_rules += ['-p icmp --icmp-type %s '
+                             '-j RETURN' % icmp4_type]
+        return icmpv4_rules
+
     def _accept_inbound_icmpv6(self):
         # Allow multicast listener, neighbor solicitation and
         # neighbor advertisement into the instance
@@ -699,6 +707,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                                          ipv4_iptables_rules,
                                          ipv6_iptables_rules)
         elif direction == constants.INGRESS_DIRECTION:
+            ipv4_iptables_rules += self._accept_inbound_icmpv4()
             ipv6_iptables_rules += self._accept_inbound_icmpv6()
         # include IPv4 and IPv6 iptable rules from security group
         ipv4_iptables_rules += self._convert_sgr_to_iptables_rules(
