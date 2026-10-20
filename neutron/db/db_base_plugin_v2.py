@@ -40,6 +40,7 @@ from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
 from oslo_config import cfg
 from oslo_db import exception as os_db_exc
+from oslo_db.sqlalchemy import utils as sa_db_utils
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import uuidutils
@@ -47,6 +48,7 @@ from sqlalchemy import and_
 from sqlalchemy import exc as sql_exc
 from sqlalchemy import func
 from sqlalchemy import not_
+from sqlalchemy.orm import lazyload
 
 from neutron._i18n import _
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -115,7 +117,11 @@ def _update_subnetpool_dict(orig_pool, new_pool):
 
 
 def _port_query_hook(context, original_model, query):
-    # Apply the port query only in non-admin and non-advsvc context
+    # Apply the port query only in non-admin and non-advsvc context.
+    # NOTE: this hook (and _port_filter_hook) make ports on a network owned
+    # by the requesting project visible for single-object lookups via
+    # model_query.get_by_id (e.g. _get_port). The list path builds the same
+    # visibility as a UNION in _get_ports_collection_query, which is faster.
     if ndb_utils.model_query_scope_is_project(context, original_model):
         query = query.join(models_v2.Network,
                            models_v2.Network.id == models_v2.Port.network_id)
@@ -1691,10 +1697,9 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         fixed_ips = filters.pop('fixed_ips', {})
         mac_address = filters.pop('mac_address', {})
         vif_type = filters.pop(portbindings_def.VIF_TYPE, None)
-        query = model_query.get_collection_query(context, Port,
-                                                 filters=filters,
-                                                 lazy_fields=lazy_fields,
-                                                 *args, **kwargs)
+        query = self._get_ports_collection_query(
+            context, filters=filters, lazy_fields=lazy_fields,
+            *args, **kwargs)
         ip_addresses = fixed_ips.get('ip_address')
         subnet_ids = fixed_ips.get('subnet_id')
         ip_addresses_s = fixed_ips.get('ip_address_substr')
@@ -1715,6 +1720,56 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             query = query.limit(limit)
         query = query.distinct()
         return query
+
+    def _get_ports_collection_query(self, context, filters=None,
+                                    lazy_fields=None, sorts=None, limit=None,
+                                    marker_obj=None, page_reverse=False,
+                                    **kwargs):
+        """Build the base port collection query.
+
+        For admin/advsvc context this is the plain model_query collection.
+        For project-scoped context the visible ports are the union of ports
+        owned by the project and ports sitting on networks owned by the
+        project. Expressing this as a UNION (instead of an OR across a JOIN
+        to networks) lets each branch use its own index, avoiding a full
+        table scan plus a temporary table for the common case where almost
+        all visible ports are matched directly by project_id.
+        """
+        Port = models_v2.Port
+        if not ndb_utils.model_query_scope_is_project(context, Port):
+            return model_query.get_collection_query(
+                context, Port, filters=filters, sorts=sorts, limit=limit,
+                marker_obj=marker_obj, page_reverse=page_reverse,
+                lazy_fields=lazy_fields, **kwargs)
+
+        session = context.session
+        own_ports = session.query(Port).filter(
+            Port.project_id == context.project_id)
+        network_owner_ports = session.query(Port).filter(
+            Port.network_id.in_(
+                session.query(models_v2.Network.id).filter(
+                    models_v2.Network.project_id == context.project_id)))
+        # UNION (not UNION ALL) deduplicates ports matched by both branches.
+        collection = own_ports.union(network_owner_ports)
+        collection = model_query.apply_filters(collection, Port, filters,
+                                               context)
+        if lazy_fields:
+            for field in lazy_fields:
+                collection = collection.options(lazyload(field))
+        if sorts:
+            sort_keys = ndb_utils.get_and_validate_sort_keys(sorts, Port)
+            sort_dirs = ndb_utils.get_sort_dirs(sorts, page_reverse)
+            # Always add unique keys so sorted/paginated results are stable,
+            # mirroring neutron_lib.db.model_query.get_collection_query.
+            uk_sets = sa_db_utils.get_unique_keys(Port)
+            for k in (uk_sets[0] if uk_sets else []):
+                if k not in sort_keys:
+                    sort_keys.append(k)
+                    sort_dirs.append('asc')
+            collection = sa_db_utils.paginate_query(
+                collection, Port, limit, marker=marker_obj,
+                sort_keys=sort_keys, sort_dirs=sort_dirs)
+        return collection
 
     @db_api.retry_if_session_inactive()
     @db_api.CONTEXT_READER
