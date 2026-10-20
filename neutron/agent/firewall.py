@@ -26,13 +26,30 @@ DIRECTION_IP_PREFIX = {n_const.INGRESS_DIRECTION: 'source_ip_prefix',
 
 # List of ICMP types that should be permitted (ingress) by default. This list
 # depends on iptables
+ICMP_ECHO_REPLY = 'echo-reply'
+ICMP_DEST_UNREACHABLE = 'destination-unreachable'
 ICMP_ECHO_REQUEST = 'echo-request'
-ICMPV4_ALLOWED_INGRESS_TYPES = (ICMP_ECHO_REQUEST,)
+ICMP_TIME_EXCEEDED = 'time-exceeded'
+ICMP_PARAMETER_PROBLEM = 'parameter-problem'
+
+ICMPV4_ALLOWED_INGRESS_TYPES = (ICMP_DEST_UNREACHABLE,
+                                ICMP_ECHO_REQUEST,
+                                ICMP_TIME_EXCEEDED,
+                                ICMP_PARAMETER_PROBLEM)
+ICMPV4_ALLOWED_EGRESS_TYPES = (ICMP_DEST_UNREACHABLE,
+                               ICMP_ECHO_REQUEST,
+                               ICMP_TIME_EXCEEDED,
+                               ICMP_PARAMETER_PROBLEM)
 
 # List of ICMPv6 types that should be permitted (ingress) by default. This list
 # depends on iptables conntrack behavior of recognizing ICMP errors (types 1-4)
 # as related traffic.
-ICMPV6_ALLOWED_INGRESS_TYPES = (n_const.ICMPV6_TYPE_MLD_QUERY,
+ICMPV6_ALLOWED_INGRESS_TYPES = (n_const.ICMPV6_TYPE_DEST_UNREACH,
+                                n_const.ICMPV6_TYPE_PKT_TOOBIG,
+                                n_const.ICMPV6_TYPE_TIME_EXCEED,
+                                n_const.ICMPV6_TYPE_PARAMPROB,
+                                n_const.ICMPV6_TYPE_ECHO_REQUEST,
+                                n_const.ICMPV6_TYPE_MLD_QUERY,
                                 n_const.ICMPV6_TYPE_NS,
                                 n_const.ICMPV6_TYPE_NA)
 

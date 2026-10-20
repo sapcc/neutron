@@ -576,7 +576,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                                        mac_ipv4_pairs, ipv4_rules)
         self._setup_spoof_filter_chain(port, self.iptables.ipv6['filter'],
                                        mac_ipv6_pairs, ipv6_rules)
-        # TODO(toanju): Add allow rules to reach the metadata server
+        # TODO(toanju): Add allow rules for ICMP and the metadata server
         # Fixed rules for traffic after source address is verified
         # Allow dhcp client renewal and rebinding
         ipv4_rules += [comment_rule('-p udp -m udp --sport 68 --dport 67 '
@@ -592,6 +592,11 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                                     '-j RETURN', comment=ic.DHCP_CLIENT)]
 
     def _non_spoofing_rule(self, ipv4_rules, ipv6_rules):
+        # Allow ICMP for egress
+        for icmp4_type in firewall.ICMPV4_ALLOWED_EGRESS_TYPES:
+            ipv4_rules += [comment_rule('-p icmp --icmp-type %s '
+                                        '-j RETURN' % icmp4_type,
+                                        comment=ic.IPV4_ICMP_ALLOW)]
         # Allow dhcp client discovery and request
         ipv4_rules += [comment_rule('-p udp -m udp --sport 68 --dport 67 '
                                     '-j RETURN', comment=ic.DHCP_CLIENT)]
