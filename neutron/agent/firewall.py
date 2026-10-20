@@ -25,14 +25,39 @@ DIRECTION_IP_PREFIX = {n_const.INGRESS_DIRECTION: 'source_ip_prefix',
                        n_const.EGRESS_DIRECTION: 'dest_ip_prefix'}
 
 # List of ICMP types that should be permitted (ingress) by default. This list
-# depends on iptables
-ICMP_ECHO_REQUEST = 'echo-request'
-ICMPV4_ALLOWED_INGRESS_TYPES = (ICMP_ECHO_REQUEST,)
+# depends on iptables.
+ICMP_ECHO_REPLY = "echo-reply"  # type 0
+ICMP_DEST_UNREACHABLE = "destination-unreachable"  # type 3
+ICMP_ECHO_REQUEST = "echo-request"  # type 8
+ICMP_TIME_EXCEEDED = "time-exceeded"  # type 11
+ICMP_PARAMETER_PROBLEM = "parameter-problem"  # type 12
+
+# List of ICMP types that are permitted by default. In the order of the ICMP
+# type number.
+ICMPV4_ALLOWED_INGRESS_TYPES = (ICMP_ECHO_REPLY,
+                                ICMP_DEST_UNREACHABLE,
+                                ICMP_ECHO_REQUEST,
+                                ICMP_TIME_EXCEEDED,
+                                ICMP_PARAMETER_PROBLEM)
+# List of ICMP types that are permitted by default for egress traffic. In the
+# order of the ICMP type number. Intentionally kept the same as
+# ICMPV4_ALLOWED_INGRESS_TYPES for now, but can be changed in future if needed.
+ICMPV4_ALLOWED_EGRESS_TYPES = (ICMP_ECHO_REPLY,
+                               ICMP_DEST_UNREACHABLE,
+                               ICMP_ECHO_REQUEST,
+                               ICMP_TIME_EXCEEDED,
+                               ICMP_PARAMETER_PROBLEM)
 
 # List of ICMPv6 types that should be permitted (ingress) by default. This list
 # depends on iptables conntrack behavior of recognizing ICMP errors (types 1-4)
 # as related traffic.
-ICMPV6_ALLOWED_INGRESS_TYPES = (n_const.ICMPV6_TYPE_MLD_QUERY,
+ICMPV6_ALLOWED_INGRESS_TYPES = (n_const.ICMPV6_TYPE_DEST_UNREACH,
+                                n_const.ICMPV6_TYPE_PKT_TOOBIG,
+                                n_const.ICMPV6_TYPE_TIME_EXCEED,
+                                n_const.ICMPV6_TYPE_PARAMPROB,
+                                n_const.ICMPV6_TYPE_ECHO_REQUEST,
+                                n_const.ICMPV6_TYPE_ECHO_REPLY,
+                                n_const.ICMPV6_TYPE_MLD_QUERY,
                                 n_const.ICMPV6_TYPE_NS,
                                 n_const.ICMPV6_TYPE_NA)
 
