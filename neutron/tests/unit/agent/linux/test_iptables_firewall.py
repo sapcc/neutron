@@ -162,6 +162,10 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-m state --state RELATED,ESTABLISHED -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
@@ -1344,6 +1348,13 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     '--physdev-is-bridged -j $ifake_dev',
                                     top=False, comment=ic.SG_TO_VM_SG)
                  ]
+        if ethertype == 'IPv4':
+            for icmp4_type in firewall.ICMPV4_ALLOWED_INGRESS_TYPES:
+                calls.append(
+                    mock.call.add_rule('ifake_dev',
+                                       '-p icmp --icmp-type %s '
+                                       '-j RETURN' %
+                                       icmp4_type, top=False, comment=None))
         if ethertype == 'IPv6':
             for icmp6_type in firewall.ICMPV6_ALLOWED_INGRESS_TYPES:
                 calls.append(
@@ -1710,6 +1721,10 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                      top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-m state --state RELATED,ESTABLISHED -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule('ifake_dev', '-j RETURN',
@@ -1815,6 +1830,10 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                      '-m physdev --physdev-out tapfake_dev '
                      '--physdev-is-bridged -j $ifake_dev',
                      top=False, comment=ic.SG_TO_VM_SG),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
                      '-m state --state RELATED,ESTABLISHED -j RETURN',
@@ -2053,6 +2072,10 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-m state --state RELATED,ESTABLISHED -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
@@ -2157,6 +2180,10 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-m state --state RELATED,ESTABLISHED -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
@@ -2241,6 +2268,10 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     '-m physdev --physdev-out tapfake_dev '
                                     '--physdev-is-bridged -j $ifake_dev',
                                     top=False, comment=ic.SG_TO_VM_SG),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
                      '-m state --state RELATED,ESTABLISHED -j RETURN',

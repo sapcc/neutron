@@ -24,6 +24,11 @@ from neutron_lib.utils import runtime
 DIRECTION_IP_PREFIX = {n_const.INGRESS_DIRECTION: 'source_ip_prefix',
                        n_const.EGRESS_DIRECTION: 'dest_ip_prefix'}
 
+# List of ICMP types that should be permitted (ingress) by default. This list
+# depends on iptables
+ICMP_ECHO_REQUEST = 'echo-request'
+ICMPV4_ALLOWED_INGRESS_TYPES = (ICMP_ECHO_REQUEST,)
+
 # List of ICMPv6 types that should be permitted (ingress) by default. This list
 # depends on iptables conntrack behavior of recognizing ICMP errors (types 1-4)
 # as related traffic.
