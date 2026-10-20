@@ -27,6 +27,7 @@ from neutron_lib.callbacks import registry
 from neutron_lib import constants
 from neutron_lib import context
 from neutron_lib.db import api as db_api
+from neutron_lib.db import model_query
 from neutron_lib.db import standard_attr
 from neutron_lib import exceptions as lib_exc
 from neutron_lib import fixture
@@ -1462,6 +1463,318 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                     self.assertEqual(1, len(port_list))
                     self.assertNotIn(port1['port']['id'], port_ids)
                     self.assertIn(port2['port']['id'], port_ids)
+
+    def test_list_ports_pagination_no_duplicates(self):
+        """Own ports on own network appear exactly once across paginated pages.
+
+        A port owned by the requesting project AND on a project-owned network
+        is a candidate for both branches of the UNION visibility query.
+        Verifies that UNION deduplication works and all N ports come back
+        exactly once across pages.
+        """
+        if self._skip_native_pagination:
+            self.skipTest("Skip test for not implemented pagination feature")
+        with self.network(tenant_id='tenant_1') as net:
+            with self.subnet(net) as sub:
+                with self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:01:01') as p1, \
+                     self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:01:02') as p2, \
+                     self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:01:03') as p3:
+                    # All 3 ports are: owned by tenant_1 AND on a network
+                    # owned by tenant_1 — they appear in both UNION branches.
+                    # With limit=2, expect 2 pages and exactly 3 unique ports.
+                    self._test_list_with_pagination(
+                        'port', (p1, p2, p3),
+                        ('mac_address', 'asc'), 2, 2,
+                        tenant_id='tenant_1')
+
+    def test_list_ports_for_network_owner_paginated(self):
+        """Network owner sees all ports (including foreign) across pages.
+
+        tenant_1 owns the network. Ports belonging to both tenant_1 and
+        tenant_2 are on it. Paginating as tenant_1 must return all 4 ports
+        with no duplicates and no gaps.
+        """
+        if self._skip_native_pagination:
+            self.skipTest("Skip test for not implemented pagination feature")
+        with self.network(tenant_id='tenant_1') as network:
+            with self.subnet(network, tenant_id='tenant_1') as subnet:
+                with self.port(subnet, project_id='tenant_1',
+                               mac_address='00:00:00:00:00:01') as p1, \
+                     self.port(subnet, project_id='tenant_2',
+                               is_admin=True,
+                               mac_address='00:00:00:00:00:02') as p2, \
+                     self.port(subnet, project_id='tenant_1',
+                               mac_address='00:00:00:00:00:03') as p3, \
+                     self.port(subnet, project_id='tenant_2',
+                               is_admin=True,
+                               mac_address='00:00:00:00:00:04') as p4:
+                    # Network owner should see all 4 ports in mac_address order
+                    # across 2 pages of limit=2, plus a trailing empty page
+                    # (Neutron emits a "next" link whenever a page is full).
+                    self._test_list_with_pagination(
+                        'port', (p1, p2, p3, p4),
+                        ('mac_address', 'asc'), 2, 3,
+                        tenant_id='tenant_1')
+
+    def test_list_ports_owned_and_network_visible(self):
+        """Ports on own networks are visible alongside directly owned ports.
+
+        tenant_1 owns two networks. Some ports on each network belong to
+        tenant_2 (network-visible) and some to tenant_1 (directly owned).
+        An un-paginated list as tenant_1 must return all of them.
+        """
+        with self.network(tenant_id='tenant_1') as net_a, \
+             self.network(tenant_id='tenant_1') as net_b:
+            with self.subnet(net_a) as sub_a, self.subnet(net_b) as sub_b:
+                with self.port(sub_a, project_id='tenant_1') as pa1, \
+                     self.port(sub_a, project_id='tenant_2',
+                               is_admin=True) as pa2, \
+                     self.port(sub_b, project_id='tenant_1') as pb1, \
+                     self.port(sub_b, project_id='tenant_2',
+                               is_admin=True) as pb2:
+                    expected_ids = {pa1['port']['id'], pa2['port']['id'],
+                                    pb1['port']['id'], pb2['port']['id']}
+                    port_res = self._list_ports('json', tenant_id='tenant_1')
+                    port_list = self.deserialize('json', port_res)['ports']
+                    returned_ids = {p['id'] for p in port_list}
+                    self.assertEqual(expected_ids, returned_ids)
+
+    def test_list_ports_shared_network_only_own_ports_visible(self):
+        """On a shared (but not owned) network only own ports are visible.
+
+        tenant_2 owns the network and shares it. tenant_1 creates a port on
+        it. Listing as tenant_1 must return tenant_1's port but NOT
+        tenant_2's port on that same network.
+        """
+        with self.network(shared=True, as_admin=True,
+                          tenant_id='tenant_2') as network:
+            with self.subnet(network) as subnet:
+                with self.port(subnet, project_id='tenant_1') as p1, \
+                     self.port(subnet, project_id='tenant_2',
+                               is_admin=True) as p2:
+                    port_res = self._list_ports('json', tenant_id='tenant_1')
+                    port_list = self.deserialize('json', port_res)['ports']
+                    port_ids = [p['id'] for p in port_list]
+                    self.assertIn(p1['port']['id'], port_ids)
+                    self.assertNotIn(p2['port']['id'], port_ids)
+
+    def test_list_ports_admin_with_project_filter_sees_all_visible(self):
+        """Admin listing with project_id filter matches project-member view.
+
+        An admin caller who passes ?project_id=tenant_1 must receive the
+        same set of ports that tenant_1 itself would see with no extra
+        filter: ports owned by tenant_1 PLUS ports on networks owned by
+        tenant_1, regardless of who owns those ports.
+        """
+        with self.network(tenant_id='tenant_1') as net:
+            with self.subnet(net, tenant_id='tenant_1') as sub:
+                with self.port(sub, project_id='tenant_1') as p_own, \
+                        self.port(sub, project_id='tenant_2',
+                                  is_admin=True) as p_net:
+                    # Non-admin tenant_1 view WITHOUT any extra filter.
+                    tenant_res = self.new_list_request(
+                        'ports', 'json', tenant_id='tenant_1')
+                    tenant_ports = self.deserialize(
+                        'json', tenant_res.get_response(self.api))['ports']
+                    # Admin view with explicit project_id=tenant_1 filter.
+                    admin_res = self.new_list_request(
+                        'ports', 'json', 'project_id=tenant_1',
+                        tenant_id='tenant_1', as_admin=True)
+                    admin_ports = self.deserialize(
+                        'json', admin_res.get_response(self.api))['ports']
+
+                    tenant_ids = {p['id'] for p in tenant_ports}
+                    admin_ids = {p['id'] for p in admin_ports}
+                    # Admin must see the same ports tenant_1 member would see.
+                    self.assertEqual(tenant_ids, admin_ids)
+                    self.assertIn(p_own['port']['id'], admin_ids)
+                    self.assertIn(p_net['port']['id'], admin_ids)
+
+    def test_list_ports_admin_no_project_filter_returns_all(self):
+        """Admin listing without project_id returns ports from all projects."""
+        with self.network(tenant_id='tenant_1') as net1, \
+                self.network(tenant_id='tenant_2') as net2:
+            with self.subnet(net1) as sub1, self.subnet(net2) as sub2:
+                with self.port(sub1, project_id='tenant_1') as p1, \
+                        self.port(sub2, project_id='tenant_2',
+                                  is_admin=True) as p2:
+                    admin_res = self.new_list_request(
+                        'ports', 'json', as_admin=True)
+                    admin_ports = self.deserialize(
+                        'json', admin_res.get_response(self.api))['ports']
+                    port_ids = [p['id'] for p in admin_ports]
+                    self.assertIn(p1['port']['id'], port_ids)
+                    self.assertIn(p2['port']['id'], port_ids)
+
+    def test_list_ports_admin_project_filter_paginated_no_duplicates(self):
+        """Admin-with-project-filter paginated listing has no duplicates.
+
+        Ports owned by the project AND on a project-owned network are
+        candidates for both UNION branches. Pagination must not repeat them.
+        """
+        if self._skip_native_pagination:
+            self.skipTest("Skip test for not implemented pagination feature")
+        with self.network(tenant_id='tenant_1') as net:
+            with self.subnet(net) as sub:
+                with self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:02:01') as p1, \
+                     self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:02:02') as p2, \
+                     self.port(sub, tenant_id='tenant_1',
+                               mac_address='00:00:00:00:02:03') as p3:
+                    self._test_list_with_pagination(
+                        'port', (p1, p2, p3),
+                        ('mac_address', 'asc'), 2, 2,
+                        tenant_id='tenant_1', as_admin=True,
+                        query_params='project_id=tenant_1')
+
+    def test_get_ports_count_admin_with_project_filter(self):
+        """get_ports_count under the admin+project_id UNION path.
+
+        An admin passing project_id=tenant_1 takes the UNION rewrite path.
+        The count must include both ports owned by tenant_1 AND ports on
+        networks owned by tenant_1 (network-visible ports).
+        """
+        with self.network(tenant_id='tenant_1') as net:
+            with self.subnet(net) as sub:
+                with self.port(sub, project_id='tenant_1'), \
+                     self.port(sub, project_id='tenant_2', is_admin=True):
+                    pl = directory.get_plugin()
+                    admin_ctx = context.Context(
+                        '', 'tenant_1', is_admin=True,
+                        roles=['admin', 'member', 'reader'])
+                    count = pl.get_ports_count(
+                        admin_ctx, filters={'project_id': ['tenant_1']})
+                    # Branch 1: port owned by tenant_1
+                    # Branch 2: port owned by tenant_2 on tenant_1's network
+                    self.assertEqual(2, count)
+
+    def test_list_ports_service_role_sees_all_projects(self):
+        """Service-role (advsvc) context bypasses UNION and sees all ports.
+
+        The UNION rewrite only applies when model_query_scope_is_project
+        returns True. A service-role context has is_service_role=True,
+        so it must fall through to the original get_collection_query path
+        and see ports from all projects.
+        """
+        with self.network(tenant_id='tenant_1') as net1, \
+                self.network(tenant_id='tenant_2') as net2:
+            with self.subnet(net1) as sub1, self.subnet(net2) as sub2:
+                with self.port(sub1, project_id='tenant_1') as p1, \
+                     self.port(sub2, project_id='tenant_2',
+                               is_admin=True) as p2:
+                    req = self._service_req('GET', 'ports')
+                    res = req.get_response(self.api)
+                    ports = self.deserialize(self.fmt, res)['ports']
+                    port_ids = {p['id'] for p in ports}
+                    self.assertIn(p1['port']['id'], port_ids)
+                    self.assertIn(p2['port']['id'], port_ids)
+
+    def test_list_ports_admin_multiple_project_id_filter(self):
+        """Admin with multiple project_id values falls back to old path.
+
+        The UNION rewrite is only applied when len(project_id) == 1.
+        An admin passing project_id=A&project_id=B must fall through to
+        the original get_collection_query path and get ports from both.
+        """
+        with self.network(tenant_id='tenant_1') as net1, \
+                self.network(tenant_id='tenant_2') as net2:
+            with self.subnet(net1) as sub1, self.subnet(net2) as sub2:
+                with self.port(sub1, project_id='tenant_1') as p1, \
+                     self.port(sub2, project_id='tenant_2',
+                               is_admin=True) as p2:
+                    res = self.new_list_request(
+                        'ports', params='project_id=tenant_1'
+                                        '&project_id=tenant_2',
+                        as_admin=True)
+                    ports = self.deserialize(
+                        self.fmt, res.get_response(self.api))['ports']
+                    port_ids = {p['id'] for p in ports}
+                    self.assertIn(p1['port']['id'], port_ids)
+                    self.assertIn(p2['port']['id'], port_ids)
+
+    def test_list_ports_for_network_owner_paginated_reverse(self):
+        """Reverse pagination across network-owner-visible foreign ports.
+
+        tenant_1 owns the network; ports belong to both tenant_1 and
+        tenant_2. page_reverse=True must return the same ports in reverse
+        order with no gaps or duplicates.
+        """
+        if self._skip_native_pagination:
+            self.skipTest("Skip test for not implemented pagination feature")
+        with self.network(tenant_id='tenant_1') as network:
+            with self.subnet(network, tenant_id='tenant_1') as subnet:
+                with self.port(subnet, project_id='tenant_1',
+                               mac_address='00:00:00:00:00:01') as p1, \
+                     self.port(subnet, project_id='tenant_2',
+                               is_admin=True,
+                               mac_address='00:00:00:00:00:02') as p2, \
+                     self.port(subnet, project_id='tenant_1',
+                               mac_address='00:00:00:00:00:03') as p3, \
+                     self.port(subnet, project_id='tenant_2',
+                               is_admin=True,
+                               mac_address='00:00:00:00:00:04') as p4:
+                    self._test_list_with_pagination_reverse(
+                        'port', (p1, p2, p3, p4),
+                        ('mac_address', 'asc'), 2, 2,
+                        tenant_id='tenant_1')
+
+    def test_port_visibility_consistent_with_hooks(self):
+        """UNION path and hook-driven path must return the same port sets.
+
+        _get_ports_query bypasses _port_query_hook and _port_filter_hook and
+        re-implements their visibility logic as a SQL UNION. This test runs
+        both paths against the same data and asserts they agree. It will fail
+        if either hook is changed without a matching update to
+        _get_ports_query.
+
+        Scenario:
+          net_own   (tenant_1) — p_own_own (tenant_1), p_net_own (tenant_2)
+          net_other (tenant_2) — p_invisible (tenant_2)  [tenant_1 cannot see]
+          net_shared (tenant_2, shared) — p_own_shared (tenant_1),
+                                          p_net_shared (tenant_2) [not visible]
+        Expected: tenant_1 sees p_own_own, p_net_own, p_own_shared
+        """
+        with self.network(tenant_id='tenant_1') as net_own, \
+             self.network(tenant_id='tenant_2') as net_other, \
+             self.network(shared=True, as_admin=True,
+                          tenant_id='tenant_2') as net_shared:
+            with self.subnet(net_own) as sub_own, \
+                 self.subnet(net_other) as sub_other, \
+                 self.subnet(net_shared) as sub_shared:
+                with self.port(sub_own, project_id='tenant_1'), \
+                     self.port(sub_own, project_id='tenant_2',
+                               is_admin=True), \
+                     self.port(sub_other, project_id='tenant_2',
+                               is_admin=True), \
+                     self.port(sub_shared, project_id='tenant_1'), \
+                     self.port(sub_shared, project_id='tenant_2',
+                               is_admin=True):
+                    ctx = context.Context('', 'tenant_1',
+                                         roles=['member', 'reader'])
+                    pl = directory.get_plugin()
+
+                    # UNION path (via _get_ports_query)
+                    union_ids = {p['id'] for p in pl.get_ports(ctx)}
+
+                    # Hook-driven reference path (calls _port_query_hook and
+                    # _port_filter_hook directly via get_collection_query)
+                    with db_api.CONTEXT_READER.using(ctx):
+                        hook_ids = {
+                            p.id for p in
+                            model_query.get_collection_query(
+                                ctx, models_v2.Port).all()
+                        }
+
+                    self.assertEqual(
+                        hook_ids, union_ids,
+                        "_get_ports_query UNION result diverges from the "
+                        "hook-driven reference. If _port_query_hook or "
+                        "_port_filter_hook changed, mirror the change in "
+                        "NeutronDbPluginV2._get_ports_query.")
 
     def test_list_ports_with_sort_native(self):
         if self._skip_native_sorting:
