@@ -30,6 +30,7 @@ from neutron.agent.linux.dhcp import DhcpLocalProcess
 from neutron.agent.linux.dhcp import Dnsmasq
 from neutron.agent.linux.dhcp import SIGTERM_TIMEOUT
 from neutron.agent.linux import external_process
+from neutron.common.sci_netconfig import SCINetworkSettings
 from neutron.common import utils as common_utils
 
 LOG = logging.getLogger(__name__)
@@ -76,6 +77,9 @@ class ProcessWrapper:
 
         self.conf = conf
         self.network = network
+
+        settings_dict = getattr(self.network, 'sci_config', None)
+        self._sci_netconfig = SCINetworkSettings.model_validate(settings_dict)
         self._process_monitor = process_monitor
         self._process_uuid = process_uuid
         self._network_conf_dir = net_conf_dir
@@ -358,7 +362,8 @@ class WrapUnbound(ProcessWrapper):
                     LOG.error('Invalid DNS server "%s" for network %s',
                               server, self.network.id)
 
-        return dns_servers
+        # check for the new config on the network and apply if present
+        return self._sci_netconfig.get_dns_custom_upstreams(dns_servers)
 
     def _send_unbound_ctrl(self, cmd, limit=1024, timeout=30,
                            limit_fatal=False
@@ -498,18 +503,25 @@ class WrapUnbound(ProcessWrapper):
         # enable dnstap if the legacy ednslogging config option
         # is True in the configuration or if the new one in the
         # SCI section is present and set.
-        # The custom network-specific settings will override
-        # the setting in any case if present.
+        # Then the legacy custom network-specific setting
+        # is applied, if present, and finally the new
+        # sci-netconfig object is evaluated.
 
+        # TODO(mutax): remove legacy setting after migration to new version:
         dnstap_enabled = self.conf.edns_client_fingerprint
         if self.conf.SCI.dnstap_enabled:
             dnstap_enabled = True
 
+        # TODO(mutax): remove legacy setting after migration to new version:
         if hasattr(self.network, 'dns_ednslogging_enabled'):
             dnstap_enabled = strutils.bool_from_string(
                     self.network.dns_ednslogging_enabled,
                     default=dnstap_enabled  # no change if None
             )
+
+        # check for the new config on the network and apply if present
+        dnstap_enabled = self._sci_netconfig.get_dns_query_logging(
+                dnstap_enabled)
 
         # only add dnstap config if enabled
         if dnstap_enabled:
