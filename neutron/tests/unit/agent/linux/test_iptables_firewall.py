@@ -162,7 +162,24 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-reply -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type destination-unreachable '
+                     '-j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type time-exceeded -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type parameter-problem -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
@@ -1721,7 +1738,24 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                      top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-reply -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type destination-unreachable '
+                     '-j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type time-exceeded -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type parameter-problem -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
@@ -1832,7 +1866,24 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                      top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-reply -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type destination-unreachable '
+                     '-j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type time-exceeded -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type parameter-problem -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
@@ -2072,7 +2123,24 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-reply -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type destination-unreachable '
+                     '-j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type time-exceeded -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type parameter-problem -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
@@ -2180,7 +2248,24 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-reply -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type destination-unreachable '
+                     '-j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type time-exceeded -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type parameter-problem -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
@@ -2206,6 +2291,27 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     '-m physdev --physdev-in tapfake_dev '
                                     '--physdev-is-bridged -j $ofake_dev',
                                     top=False, comment=ic.INPUT_TO_SG),
+                 mock.call.add_rule(
+                     'ofake_dev',
+                     '-p icmp --icmp-type echo-reply -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ofake_dev',
+                     '-p icmp --icmp-type destination-unreachable '
+                     '-j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ofake_dev',
+                     '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ofake_dev',
+                     '-p icmp --icmp-type time-exceeded -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ofake_dev',
+                     '-p icmp --icmp-type parameter-problem -j RETURN',
+                     top=False, comment=None),
                  mock.call.add_rule(
                      'ofake_dev',
                      '-p udp -m udp --sport 68 --dport 67 -j RETURN',
@@ -2270,7 +2376,24 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     top=False, comment=ic.SG_TO_VM_SG),
                  mock.call.add_rule(
                      'ifake_dev',
+                     '-p icmp --icmp-type echo-reply -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type destination-unreachable '
+                     '-j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
                      '-p icmp --icmp-type echo-request -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type time-exceeded -j RETURN',
+                     top=False, comment=None),
+                 mock.call.add_rule(
+                     'ifake_dev',
+                     '-p icmp --icmp-type parameter-problem -j RETURN',
                      top=False, comment=None),
                  mock.call.add_rule(
                      'ifake_dev',
