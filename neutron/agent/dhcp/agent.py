@@ -17,7 +17,9 @@ import collections
 from concurrent import futures
 import functools
 import os
+from pathlib import Path
 import signal
+import socket
 import threading
 import time
 
@@ -30,6 +32,7 @@ from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
 import oslo_messaging
+from oslo_serialization import jsonutils
 # NOTE(ralonsoh): [eventlet-removal] change back to
 # ``oslo_service.loopingcall`` when the removal is completed.
 from oslo_service.backend._threading import loopingcall
@@ -37,6 +40,7 @@ from oslo_utils import fileutils
 from oslo_utils import importutils
 from oslo_utils import netutils
 from oslo_utils import timeutils
+from pyroute2 import netns
 
 from neutron._i18n import _
 from neutron.agent.common import base_agent_rpc
@@ -58,6 +62,8 @@ DELETED_PORT_MAX_AGE = 86400
 
 DHCP_READY_PORTS_SYNC_MAX = 64
 
+AGENT_STATUS_FILE = "/run/dhcp-agent/status.json"
+
 
 def _sync_lock(f):
     """Decorator to block all operations for a global sync call."""
@@ -75,6 +81,114 @@ def _wait_if_syncing(f):
         with _SYNC_STATE_LOCK:
             return f(*args, **kwargs)
     return wrapped
+
+
+def _remove_status_file():
+    path = Path(AGENT_STATUS_FILE)
+    path.unlink()
+    LOG.info("Agent status file %s removed", AGENT_STATUS_FILE)
+
+
+def _find_existing_net_ns():
+    synced_nets = set()
+    for net in netns.listnetns():
+        if net.startswith('qdhcp-'):
+            synced_nets.add(net.removeprefix('qdhcp-'))
+    return synced_nets
+
+
+def _find_existing_bridges():
+    """query kernel for network interface names and return the ones following
+    the naming scheme for neutron bridge interfaces
+    """
+
+    bridges = set(
+        ifname[3:] for (idx, ifname) in socket.if_nameindex()
+        if ifname.startswith('brq')
+    )
+    return bridges
+
+
+def _create_status_file(ready, message, networks=None, bridges=None):
+    path = Path(AGENT_STATUS_FILE)
+    try:
+        path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    except OSError:
+        LOG.error('Failed to create directory %s', path.parent)
+        return
+
+    if networks is None:
+        networks = _find_existing_net_ns()
+
+    if bridges is None:
+        bridges = _find_existing_bridges()
+
+    status_message = {
+        "time": time.time(),
+        "ready": ready,
+        "message": message,
+        "synced_networks": sorted(networks),
+        "synced_bridges": sorted(bridges),
+    }
+
+    try:
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w") as status_file:
+            jsonutils.dump(status_message, status_file)
+        tmp.rename(path)
+    except OSError:
+        LOG.error('Failed to write status file %s', path)
+
+
+def _write_status_failure(error):
+    _create_status_file(ready=False, message=str(error))
+
+
+def _write_sync_status(active_network_ids):
+    existing_netns = _find_existing_net_ns()
+    existing_bridges = _find_existing_bridges()
+
+    # Bridge name is equal to the first eleven character of the network id
+    # this could lead to collisions, so we will check that below.
+    expected_bridges = {net_id[:11] for net_id in active_network_ids}
+
+    errors = []
+
+    collisions = collections.Counter(net_id[:11]
+                                     for net_id in active_network_ids)
+    colliding_nets = [net_id for net_id in active_network_ids
+                      if collisions[net_id[:11]] > 1]
+
+    if colliding_nets:
+        # we would have all bridges and namespaces, but some namespaces
+        # would miss the bridge interface, so raise this as an error
+        errors.append(f"{len(colliding_nets)} bridge name collision(s): "
+                      f"{', '.join(sorted(colliding_nets)[:5])}"
+                      f"{'...' if len(colliding_nets) > 5 else '.'}")
+
+    missing_netns = set(active_network_ids) - existing_netns
+    if missing_netns:
+        errors.append(f"Missing {len(missing_netns)} netns: "
+                      f"{', '.join(sorted(missing_netns)[:5])}"
+                      f"{'...' if len(missing_netns) > 5 else '.'}")
+
+    missing_bridges = set(expected_bridges) - existing_bridges
+    if missing_bridges:
+        errors.append(f"Missing {len(missing_bridges)} bridge(s): "
+                      f"{', '.join(sorted(missing_bridges)[:5])}"
+                      f"{'...' if len(missing_bridges) > 5 else '.'}")
+
+    if not errors:
+        ready = True
+        message = f"All {len(active_network_ids)} network(s) synced."
+    else:
+        ready = False
+        message = f"Not all {len(active_network_ids)} network(s) are synced!"
+        message += " " + " ".join(errors)
+
+    _create_status_file(ready=ready, message=message,
+                        networks=existing_netns,
+                        bridges=existing_bridges)
 
 
 class DHCPResourceUpdate(queue.ResourceUpdate):
@@ -147,6 +261,7 @@ class DhcpAgent(manager.Manager):
         # we could race with the monitor restarting the process. See also
         # method update_isolated_metadata_proxy().
         self.restarted_metadata_proxy_set = set()
+        self._initial_sync_completed = False
 
     def init_host(self):
         super().init_host()
@@ -164,6 +279,7 @@ class DhcpAgent(manager.Manager):
         self.plugin_rpc = DhcpPluginApi(topics.PLUGIN, self.conf.host)
         self.dhcp_version = self.dhcp_driver_cls.check_version()
         self._populate_networks_cache()
+        _create_status_file(ready=False, message="DHCP agent starting")
         self.sync_state()
 
     def _populate_networks_cache(self):
@@ -377,7 +493,8 @@ class DhcpAgent(manager.Manager):
             # was down
             self.dhcp_ready_ports |= set(self.cache.get_port_ids(only_nets))
             LOG.info('Synchronizing state complete')
-
+            _write_sync_status(self.cache.get_network_ids())
+            self._initial_sync_completed = True
         except Exception as e:
             if only_nets:
                 for network_id in only_nets:
@@ -385,6 +502,7 @@ class DhcpAgent(manager.Manager):
             else:
                 self.schedule_resync(e)
             LOG.exception('Unable to sync network state.')
+            _write_status_failure(e)
 
     def _dhcp_ready_ports_loop(self):
         """Notifies the server of any ports that had reservations setup."""
@@ -432,6 +550,7 @@ class DhcpAgent(manager.Manager):
     @utils.exception_logger()
     def _periodic_resync_helper(self):
         """Resync the dhcp state at the configured interval and throttle."""
+        last_check = time.monotonic()
         while not self._stopping_event.is_set():
             # threading.Event.wait blocks until the internal flag is true. It
             # returns the internal flag on exit, so it will always return True
@@ -456,6 +575,16 @@ class DhcpAgent(manager.Manager):
                     LOG.debug("resync (%(network)s): %(reason)s",
                               {"reason": r, "network": net})
                 self.sync_state(list(reasons.keys()))
+                # sync state also performs a _write_sync_status
+                last_check = time.monotonic()
+            elif (last_check + cfg.CONF.dhcp_agent_check_interval <
+                  time.monotonic()):
+                last_check = time.monotonic()
+                if self._initial_sync_completed:
+                    # prevent a race condition where cached networks is empty
+                    # because the sync is not completed
+                    # but the check interval already reached.
+                    _write_sync_status(self.cache.get_network_ids())
 
     def periodic_resync(self):
         """Spawn a thread to periodically resync the dhcp state."""
@@ -873,7 +1002,7 @@ class DhcpAgent(manager.Manager):
 
         metadata_driver.MetadataDriver.spawn_monitored_metadata_proxy(
             self._process_monitor, network.namespace, constants.METADATA_PORT,
-            self.conf, bind_address=constants.METADATA_V4_IP, **kwargs)
+            self.conf, **kwargs)
 
     def disable_isolated_metadata_proxy(self, network):
         if (self.conf.enable_metadata_network and
@@ -887,6 +1016,10 @@ class DhcpAgent(manager.Manager):
             self._process_monitor, uuid, self.conf, network.namespace)
         if is_router_id:
             del self._metadata_routers[network.id]
+
+    def stop(self):
+        super().stop()
+        _remove_status_file()
 
 
 class DhcpPluginApi(base_agent_rpc.BasePluginApi):
@@ -1140,7 +1273,9 @@ class DhcpAgentWithStateReport(DhcpAgent):
             'configurations': {
                 'dhcp_driver': self.conf.dhcp_driver,
                 'dhcp_lease_duration': self.conf.dhcp_lease_duration,
-                'log_agent_heartbeats': self.conf.AGENT.log_agent_heartbeats},
+                'log_agent_heartbeats': self.conf.AGENT.log_agent_heartbeats,
+                'scheduling_disabled': self.conf.AGENT.scheduling_disabled,
+            },
             'start_flag': True,
             'agent_type': constants.AGENT_TYPE_DHCP}
         report_interval = self.conf.AGENT.report_interval
@@ -1190,3 +1325,6 @@ class DhcpAgentWithStateReport(DhcpAgent):
 
     def after_start(self):
         LOG.info("DHCP agent started")
+
+    def stop(self):
+        super().stop()

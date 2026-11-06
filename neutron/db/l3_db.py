@@ -1504,6 +1504,14 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             msg = _("Network %s does not contain any IPv4 subnet") % f_net_id
             raise n_exc.BadRequest(resource='floatingip', msg=msg)
 
+        if validators.is_attr_set(fip.get('floating_ip_address')):
+            for subnet in f_net_db.subnets:
+                if subnet.gateway_ip == fip['floating_ip_address']:
+                    msg = _("Floating ip %s cannot be allocated, "
+                            "as it is also the gateway ip of subnet %s") % (
+                            fip['floating_ip_address'], subnet.id)
+                    raise n_exc.BadRequest(resource='floatingip', msg=msg)
+
         # This external port is never exposed to the project.
         # it is used purely for internal system and admin use when
         # managing floating IPs.
@@ -2058,9 +2066,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
 
             scopes = {}
             for subnet in subnets_by_network[port['network_id']]:
-                scope = subnet['address_scope_id']
                 cidr = netaddr.IPNetwork(subnet['cidr'])
-                scopes[cidr.version] = scope
 
                 # If this subnet is used by the port (has a matching entry
                 # in the port's fixed_ips), then add this subnet to the
@@ -2074,6 +2080,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                'subnetpool_id': subnet['subnetpool_id']}
                 for fixed_ip in port['fixed_ips']:
                     if fixed_ip['subnet_id'] == subnet['id']:
+                        scopes[cidr.version] = subnet['address_scope_id']
                         port['subnets'].append(subnet_info)
                         prefixlen = cidr.prefixlen
                         fixed_ip['prefixlen'] = prefixlen

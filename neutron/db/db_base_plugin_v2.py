@@ -719,7 +719,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         if has_cidr and s.get('enable_dhcp') and not dhcp_was_enabled:
             error_message = _("Subnet has a prefix length that is "
                               "incompatible with DHCP service enabled")
-            if ((ip_ver == 4 and net.prefixlen > 30) or
+            if ((ip_ver == 4 and net.prefixlen > 28) or
                     (ip_ver == 6 and net.prefixlen > 126)):
                 raise exc.InvalidInput(error_message=error_message)
 
@@ -1266,7 +1266,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 ip_version=as_ip_version)
 
         self._check_subnetpool_address_scope_network_affinity(
-            context, subnetpool_id, ip_version)
+            context, subnetpool_id, ip_version, address_scope_id)
 
         subnetpools = subnetpool_obj.SubnetPool.get_objects(
             context, address_scope_id=address_scope_id)
@@ -1281,17 +1281,17 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
     def _check_subnetpool_address_scope_network_affinity(self, context,
                                                          subnetpool_id,
-                                                         ip_version):
+                                                         ip_version,
+                                                         address_scope_id):
         """Check whether updating a subnet pool's address scope is allowed.
 
         - Identify the subnets that would be re-scoped
         - Identify the networks that would be affected by re-scoping
         - Find all subnets associated with the affected networks
-        - Perform set difference (all - to_be_rescoped)
-        - If the set difference yields non-zero result size, re-scoping the
-        subnet pool will leave subnets in different address scopes and result
-        in address scope / network affinity violations so raise an exception to
-        block the operation.
+        - Compare address scopes for all of subnet pools related to subnets in
+          each network.
+        If the network has (or will have) different address scopes this check
+        will raise an exception to block the operation.
         """
 
         # TODO(tidwellr) potentially lots of subnets here, optimize this code
@@ -1307,15 +1307,20 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             context,
             network_id=affected_source_network_ids,
             ip_version=ip_version)
-        all_affected_subnet_ids = {
-            subnet.id for subnet in all_network_subnets}
+        affected_pool_ids = set(
+            [s.subnetpool_id for s in all_network_subnets if s.subnetpool_id])
 
-        # Use set difference to identify the subnets that would be
-        # violating address scope affinity constraints if the subnet
-        # pool's address scope was changed.
-        violations = all_affected_subnet_ids.difference(rescoped_subnet_ids)
-        if violations:
-            raise addr_scope_exc.NetworkAddressScopeAffinityError()
+        subnet_pools = subnetpool_obj.SubnetPool.get_objects(
+            context,
+            id=affected_pool_ids)
+        affected_scopes = {sp.id: sp.address_scope_id for sp in subnet_pools}
+
+        for pool in affected_pool_ids:
+            # address scopes should be the same in all networks raleted to
+            # the address scope.
+            scope = affected_scopes.get(pool)
+            if scope and scope != address_scope_id:
+                raise addr_scope_exc.NetworkAddressScopeAffinityError()
 
     def _check_subnetpool_update_allowed(self, context, subnetpool_id,
                                          address_scope_id):
@@ -1530,11 +1535,16 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         mac_address = port_data.pop('mac_address', None)
         if mac_address:
             if self._is_mac_in_use(context, port_data['network_id'],
-                                   mac_address):
+                                   mac_address, globally_unique=True):
                 raise exc.MacAddressInUse(net_id=port_data['network_id'],
                                           mac=mac_address)
         else:
-            mac_address = self._generate_macs()[0]
+            while True:
+                mac_address = self._generate_macs()[0]
+                if not self._is_mac_in_use(context, port_data['network_id'],
+                                           mac_address, globally_unique=True):
+                    break
+
         db_port = models_v2.Port(mac_address=mac_address, **port_data)
         context.session.add(db_port)
         return db_port
@@ -1696,6 +1706,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                                                  *args, **kwargs)
         ip_addresses = fixed_ips.get('ip_address')
         subnet_ids = fixed_ips.get('subnet_id')
+        ip_addresses_s = fixed_ips.get('ip_address_substr')
         if vif_type is not None:
             query = query.filter(Port.port_bindings.any(vif_type=vif_type))
         if mac_address:
@@ -1703,12 +1714,12 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                               for x in mac_address]
             query = query.filter(
                 func.lower(Port.mac_address).in_(sanitized_macs))
+        if ip_addresses or subnet_ids or ip_addresses_s:
+            query = query.join(Port.fixed_ips)
         if ip_addresses:
-            query = query.filter(
-                Port.fixed_ips.any(IPAllocation.ip_address.in_(ip_addresses)))
+            query = query.filter(IPAllocation.ip_address.in_(ip_addresses))
         if subnet_ids:
-            query = query.filter(
-                Port.fixed_ips.any(IPAllocation.subnet_id.in_(subnet_ids)))
+            query = query.filter(IPAllocation.subnet_id.in_(subnet_ids))
         if limit:
             query = query.limit(limit)
         query = query.distinct()
