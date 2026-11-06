@@ -448,28 +448,32 @@ class TestOvnNbIdlNotifyHandler(test_mech_driver.OVNMechanismDriverTestCase):
         row_data.update({'up': True, 'enabled': False})
         self._test_lsp_helper('create', row_data)
         self.assertFalse(self.mech_driver.set_port_status_up.called)
-        self.mech_driver.set_port_status_down.assert_called_once_with('foo')
+        # SCI: don't expect explicit down status for new ports
+        self.mech_driver.set_port_status_down.assert_not_called()
         self.mech_driver.set_port_status_down.reset_mock()
 
         # down and enabled
         row_data.update({'up': False, 'enabled': True})
         self._test_lsp_helper('create', row_data)
         self.assertFalse(self.mech_driver.set_port_status_up.called)
-        self.mech_driver.set_port_status_down.assert_called_once_with('foo')
+        # SCI: don't expect explicit down status for new ports
+        self.mech_driver.set_port_status_down.assert_not_called()
         self.mech_driver.set_port_status_down.reset_mock()
 
         # down and disabled
         row_data.update({'up': False, 'enabled': False})
         self._test_lsp_helper('create', row_data)
         self.assertFalse(self.mech_driver.set_port_status_up.called)
-        self.mech_driver.set_port_status_down.assert_called_once_with('foo')
+        # SCI: don't expect explicit down status for new ports
+        self.mech_driver.set_port_status_down.assert_not_called()
         self.mech_driver.set_port_status_down.reset_mock()
 
         # Not set to up
         row_data.update({'up': ['set', []], 'enabled': True})
         self._test_lsp_helper('create', row_data)
         self.assertFalse(self.mech_driver.set_port_status_up.called)
-        self.mech_driver.set_port_status_down.assert_called_once_with('foo')
+        # SCI: don't expect explicit down status for new ports
+        self.mech_driver.set_port_status_down.assert_not_called()
 
     def test_unwatch_logical_switch_port_create_events(self):
         self.idl.unwatch_logical_switch_port_create_events()

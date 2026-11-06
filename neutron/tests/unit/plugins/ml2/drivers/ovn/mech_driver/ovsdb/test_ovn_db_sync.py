@@ -388,6 +388,13 @@ class TestOvnNbSyncML2(test_mech_driver.OVNMechanismDriverTestCase):
         ovn_driver = ovn_nb_synchronizer.ovn_driver
         l3_plugin = ovn_nb_synchronizer.l3_plugin
         pf_plugin = ovn_nb_synchronizer.pf_plugin
+        if not pf_plugin:
+            from neutron import manager
+            pf_plugin = (
+                manager.NeutronManager.load_class_for_provider(
+                    'neutron.service_plugins',
+                    'port_forwarding')())
+
         segments_plugin = ovn_nb_synchronizer.segments_plugin
 
         core_plugin.get_networks = mock.Mock()

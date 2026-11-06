@@ -694,6 +694,10 @@ class DBInconsistenciesPeriodics(SchemaAwarePeriodicsBase):
         """
         context = n_context.get_admin_context()
         cmds = []
+        if not utils.is_ovn_l3(self._ovn_client._l3_plugin):
+            LOG.debug("OVN L3 plugin is not enabled, skipping check for "
+                      "redirect-type on router gateway ports")
+            raise periodics.NeverAgain()
         gw_ports = self._ovn_client._plugin.get_ports(
             context, {'device_owner': [n_const.DEVICE_OWNER_ROUTER_GW]})
         for gw_port in gw_ports:
@@ -755,6 +759,10 @@ class DBInconsistenciesPeriodics(SchemaAwarePeriodicsBase):
         """
         context = n_context.get_admin_context()
         cmds = []
+        if not utils.is_ovn_l3(self._ovn_client._l3_plugin):
+            LOG.debug("OVN L3 plugin is not enabled, skipping check for "
+                      "redirect-type on router gateway ports")
+            raise periodics.NeverAgain()
         # Get router ports belonging to VLAN or FLAT networks
         vlan_nets = self._ovn_client._plugin.get_networks(
             context, {pnet.NETWORK_TYPE: [n_const.TYPE_VLAN,
@@ -898,7 +906,7 @@ class DBInconsistenciesPeriodics(SchemaAwarePeriodicsBase):
         with self._nb_idl.transaction(check_error=True) as txn:
             for port in ports:
                 lsp = self._nb_idl.lsp_get(port['id']).execute(
-                    check_error=True)
+                    log_errors=False)
                 if not lsp:
                     continue
 
@@ -990,6 +998,10 @@ class DBInconsistenciesPeriodics(SchemaAwarePeriodicsBase):
         """Add info if LRP is connecting internal subnet or ext gateway."""
         cmds = []
         context = n_context.get_admin_context()
+        if not utils.is_ovn_l3(self._ovn_client._l3_plugin):
+            LOG.debug("OVN L3 plugin is not enabled, skipping check for "
+                      "external gateway on router ports")
+            raise periodics.NeverAgain()
         for router in self._ovn_client._l3_plugin.get_routers(context):
             ext_gw_networks = [
                 ext_gw['network_id'] for ext_gw in router['external_gateways']]
