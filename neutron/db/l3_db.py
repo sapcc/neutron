@@ -1507,9 +1507,11 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         if validators.is_attr_set(fip.get('floating_ip_address')):
             for subnet in f_net_db.subnets:
                 if subnet.gateway_ip == fip['floating_ip_address']:
-                    msg = _("Floating ip %s cannot be allocated, "
-                            "as it is also the gateway ip of subnet %s") % (
-                            fip['floating_ip_address'], subnet.id)
+                    msg = _("Floating ip %(ip)s cannot be allocated, "
+                            "as it is also the gateway ip of subnet "
+                            "%(subnet)s") % {
+                                'ip': fip['floating_ip_address'],
+                                'subnet': subnet.id}
                     raise n_exc.BadRequest(resource='floatingip', msg=msg)
 
         # This external port is never exposed to the project.

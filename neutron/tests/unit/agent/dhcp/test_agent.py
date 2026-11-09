@@ -2727,7 +2727,7 @@ class TestDeviceManager(base.BaseTestCase):
                 # as root in a container, permissions will be ignored!
                 with mock.patch("builtins.open") as mock_open:
                     with mock.patch("os.makedirs",
-                                    side_effect=IOError('mocked error')
+                                    side_effect=OSError('mocked error')
                                     ) as mock_mkdirs:
                         dh = dhcp.DeviceManager(cfg.CONF, mock.Mock())
                         dh.NNS_RESOLVCONF_PATH = tmpdir
@@ -2787,7 +2787,7 @@ class TestDeviceManager(base.BaseTestCase):
         settings = set()
         valid_keywords = set(('options', 'search', 'nameserver'))
 
-        with open(resolvconf, 'r') as f:
+        with open(resolvconf) as f:
             for line in f.readlines():
                 keyword, *values = line.strip().split(' ', 1)
                 # ignore empty lines and comments
@@ -3275,7 +3275,7 @@ class TestAgentStatus(base.BaseTestCase):
 class TestAgentStatusIntegration(base.BaseTestCase):
 
     def setUp(self):
-        super(TestAgentStatusIntegration, self).setUp()
+        super().setUp()
 
         entry.register_options(cfg.CONF)
         cfg.CONF.set_override('interface_driver',

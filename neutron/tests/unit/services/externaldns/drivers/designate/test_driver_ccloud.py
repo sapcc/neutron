@@ -28,7 +28,8 @@ from neutron.tests.unit.extensions.test_l3\
 
 from neutron.services.externaldns.drivers.designate import driver_ccloud
 
-from .test_driver import TestDesignateDriver
+from neutron.tests.unit.services.externaldns.drivers.designate.test_driver \
+    import TestDesignateDriver
 
 
 class L3NatDBFloatingIpTestCaseWithDNSCcloud(L3NatDBFloatingIpTestCaseWithDNS):
