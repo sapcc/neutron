@@ -1307,8 +1307,9 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             context,
             network_id=affected_source_network_ids,
             ip_version=ip_version)
-        affected_pool_ids = set(
-            [s.subnetpool_id for s in all_network_subnets if s.subnetpool_id])
+        affected_pool_ids = {
+            s.subnetpool_id for s in all_network_subnets if s.subnetpool_id
+        }
 
         subnet_pools = subnetpool_obj.SubnetPool.get_objects(
             context,
