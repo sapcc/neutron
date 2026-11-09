@@ -2971,12 +2971,10 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
                 if call_count != 0:
                     raise AssertionError('Second call to set_binding_levels() '
                         'raised RetryRequest')
-                else:
-                    raise
-            else:
-                if call_count == 0:
-                    raise AssertionError('First call to set_binding_levels() '
-                        'did not raise RetryRequest')
+                raise
+            if call_count == 0:
+                raise AssertionError('First call to set_binding_levels() '
+                    'did not raise RetryRequest')
 
             return return_value
 
