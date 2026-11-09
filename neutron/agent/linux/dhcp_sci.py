@@ -630,7 +630,7 @@ class DnsmasqWithoutDNS(Dnsmasq):
 
     def _output_addn_hosts_file(self):
         # We do not want to create an addn host file for dnsmasq.
-        pass
+        return None
 
     def _build_cmdline_callback(self, pid_file):
         """Returns commandline to spawn dnsmasq without DNS.

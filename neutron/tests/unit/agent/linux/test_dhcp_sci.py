@@ -811,8 +811,7 @@ class TestDnsmasqWithoutDNS(TestBase):
         instance = self._create_instance()
 
         # Should not raise and should not write anything
-        result = instance._output_addn_hosts_file()
-        self.assertIsNone(result)
+        self.assertIsNone(instance._output_addn_hosts_file())
 
     # ----------------------------------------------------------------------
     # _output_config_files tests
