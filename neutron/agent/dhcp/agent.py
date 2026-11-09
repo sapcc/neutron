@@ -326,6 +326,7 @@ class DhcpAgent(manager.Manager):
             if thread.is_alive():
                 thread.join(timeout=5)
 
+        _remove_status_file()
         LOG.info("DHCP Agent Stopped")
 
     def run(self):
@@ -1017,10 +1018,6 @@ class DhcpAgent(manager.Manager):
         if is_router_id:
             del self._metadata_routers[network.id]
 
-    def stop(self):
-        super().stop()
-        _remove_status_file()
-
 
 class DhcpPluginApi(base_agent_rpc.BasePluginApi):
     """Agent side of the dhcp rpc API.
@@ -1325,6 +1322,3 @@ class DhcpAgentWithStateReport(DhcpAgent):
 
     def after_start(self):
         LOG.info("DHCP agent started")
-
-    def stop(self):
-        super().stop()
