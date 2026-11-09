@@ -141,9 +141,10 @@ class CustomNetworkConfigurator:
             cfgfile = pathlib.Path(self._config_file)
             config = yaml.load(cfgfile.read_bytes(), Loader=yaml.SafeLoader)
         except OSError as e:
-            raise CustomNetworkConfigError(_("failed to load "
-                                             "config file '%s': %s")
-                                           % (self._config_file, e))
+            raise CustomNetworkConfigError(_("failed to load config file "
+                                             "'%(file)s': %(error)s")
+                                           % {'file': self._config_file,
+                                              'error': e})
         if not config:
             msg = (_("failed to load config file '%s': empty file?")
                    % self._config_file)
@@ -182,16 +183,18 @@ class CustomNetworkConfigurator:
 
             invalid_keys = item.keys() - valid_keys
             if invalid_keys:
-                msg = (_("Invalid key(s) in config file '%s' at '%s': %s")
-                       % (self._config_file, item,
-                          ", ".join(list(invalid_keys))))
+                msg = (_("Invalid key(s) in config file '%(file)s' "
+                         "at '%(item)s': %(keys)s")
+                       % {'file': self._config_file, 'item': item,
+                          'keys': ", ".join(list(invalid_keys))})
                 raise CustomNetworkConfigError(msg)
 
             missing_keys = mandatory_keys - item.keys()
             if missing_keys:
-                msg = (_("Missing key(s) in config file '%s' at '%s': %s")
-                       % (self._config_file, item,
-                          ", ".join(list(missing_keys))))
+                msg = (_("Missing key(s) in config file '%(file)s' "
+                         "at '%(item)s': %(keys)s")
+                       % {'file': self._config_file, 'item': item,
+                          'keys': ", ".join(list(missing_keys))})
                 raise CustomNetworkConfigError(msg)
 
             project_ids = item.get('project_ids', [])

@@ -22,8 +22,8 @@ from __future__ import annotations
 
 
 from pydantic import BaseModel
-from pydantic import IPvAnyAddress
 from pydantic import field_serializer
+from pydantic import IPvAnyAddress
 
 
 class SCINetworkSettings(BaseModel):

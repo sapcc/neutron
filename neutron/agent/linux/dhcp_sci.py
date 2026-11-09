@@ -390,7 +390,9 @@ class WrapUnbound(ProcessWrapper):
                     if limit and len(buf) > limit:
                         if limit_fatal:
                             msg = _("Limit exceeded reading from unbound "
-                                    "(%s): %d > %d") % (spath, len(buf), limit)
+                                    "(%(path)s): %(size)d > %(limit)d") % {
+                                        'path': spath, 'size': len(buf),
+                                        'limit': limit}
                             raise ValueError(msg)
                         LOG.warning("Limit exceeded reading from "
                                     "unbound (%s): %d > %d",
@@ -423,9 +425,11 @@ class WrapUnbound(ProcessWrapper):
         for key, value in settings.items():
 
             if not isinstance(value, (int, str, list)):
-                raise TypeError(_("Value '%s' of key '%s' in section '%s' "
-                                  "must be an int, str or a list")
-                                % (value, key, section_name))
+                raise TypeError(_("Value '%(value)s' of key '%(key)s' "
+                                  "in section '%(section)s' must be an int, "
+                                  "str or a list")
+                                % {'value': value, 'key': key,
+                                   'section': section_name})
 
             if not isinstance(value, list):
                 value = [value]
