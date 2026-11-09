@@ -2846,11 +2846,11 @@ class TestDeviceManager(base.BaseTestCase):
             dh._write_resolvconf(netns)
             resolvconf = f"{tmpdir}/{netns}/resolv.conf"
 
-            required_keywords = set(('nameserver', 'search', 'options'))
+            required_keywords = {('nameserver', 'search', 'options')}
             # we must not set filter_keywords to True here in any case,
             # this test is supposed to check for invalid keywords/settings
             settings = self._read_resolvconf(resolvconf)
-            found_keywords = set([x[0] for x in settings])
+            found_keywords = {[x[0] for x in settings]}
 
         self.assertEqual(required_keywords, found_keywords)
 
