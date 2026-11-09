@@ -269,9 +269,9 @@ class TestSCINetworkSettings(base.BaseTestCase):
         # Because we are using a pydantic data type here, we check
         # for presence of the compressed attribute. The class definiton
         # itself is hidden deep inside pydantic.
-        self.assertTrue(hasattr(settings.dns_custom_upstreams[0],
+        self.assertTrue(hasattr(settings.dns_custom_upstreams[0],  # pylint: disable=unsubscriptable-object
                                 'compressed'))
-        self.assertTrue(hasattr(settings.ntp_servers[0],
+        self.assertTrue(hasattr(settings.ntp_servers[0],  # pylint: disable=unsubscriptable-object
                                 'compressed'))
 
     def test_direct_construction_validates_ips(self):
