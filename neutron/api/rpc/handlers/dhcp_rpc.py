@@ -140,7 +140,7 @@ class CustomNetworkConfigurator:
         try:
             cfgfile = pathlib.Path(self._config_file)
             config = yaml.load(cfgfile.read_bytes(), Loader=yaml.SafeLoader)
-        except IOError as e:
+        except OSError as e:
             raise CustomNetworkConfigError(_("failed to load "
                                              "config file '%s': %s")
                                            % (self._config_file, e))
