@@ -3320,6 +3320,7 @@ class TestAgentStatusIntegration(base.BaseTestCase):
                               'safe_get_network_info']
                 )
                 with mock.patch.multiple(dhcp, **attrs_to_mock):
+                    dhcp.safe_get_network_info.return_value = None
                     with (mock.patch.object(netns, 'listnetns')
                           as netns_list,
                           mock.patch('socket.if_nameindex')
