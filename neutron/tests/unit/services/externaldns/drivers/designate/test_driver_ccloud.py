@@ -704,7 +704,9 @@ class TestCCloudDesignateDriver(TestDesignateDriver):
         self.fallback_client.recordsets.delete.assert_called_once_with(
             'zone-shared', 123)
 
-    def test_delete_record_set_retries_on_managed_record(self):
+    def test_delete_managed_record_falls_back_to_admin(self):
+        # Override the base driver's test: CCloud retries through the scoped
+        # fallback client and addresses the authorized zone by id.
         self.client.recordsets.list.return_value = [
             {'id': 123, 'records': ['192.168.0.10']},
         ]
@@ -722,6 +724,8 @@ class TestCCloudDesignateDriver(TestDesignateDriver):
         self.driver.delete_record_set(
             self.context, 'example.test.', 'test', ['192.168.0.10'])
 
+        self.client.recordsets.delete.assert_called_once_with(
+            'example.test.', 123)
         self.fallback_client.recordsets.delete.assert_called_once_with(
             'zone-1', 123)
 
