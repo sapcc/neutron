@@ -371,6 +371,41 @@ class TestCCloudDesignateDriver(TestDesignateDriver):
         self.fallback_client.recordsets.delete.assert_called_once_with(
             'zone-1', 123)
 
+    def test_delete_record_set_with_reverse_dns_not_found(self):
+        # CCloud deletes PTR records through the edit-managed client and
+        # logs an already missing record at debug level.
+        self.fallback_client.recordsets.delete.side_effect = [
+            d_exc.NotFound, None]
+        self.client.recordsets.list.return_value = [
+            {'id': 123, 'records': ['192.168.0.10']},
+            {'id': 456, 'records': ['2001:db8:0:1::1']},
+        ]
+
+        with mock.patch.object(driver_ccloud, 'LOG') as log_mock:
+            self.driver.delete_record_set(
+                self.context, 'example.test.', 'test',
+                ['192.168.0.10', '2001:db8:0:1::1'])
+            log_mock.debug.assert_called_once_with(
+                "No '%s' PTR record was found in Designate.",
+                '10.0.168.192.in-addr.arpa.')
+            log_mock.warning.assert_not_called()
+            log_mock.error.assert_not_called()
+
+        self.assertEqual([
+            mock.call('example.test.', 123),
+            mock.call('example.test.', 456),
+        ], self.client.recordsets.delete.call_args_list)
+        self.assertEqual([
+            mock.call('0.168.192.in-addr.arpa.',
+                      '10.0.168.192.in-addr.arpa.'),
+            mock.call(
+                '0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.8.b.d.0.1.0.'
+                '0.2.ip6.arpa.',
+                '1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.8.b.d.0.'
+                '1.0.0.2.ip6.arpa.'),
+        ], self.fallback_client.recordsets.delete.call_args_list)
+        self.admin_client.recordsets.delete.assert_not_called()
+
     def test_delete_record_set_owner_path(self):
         # User's own client sees the zone: delete via that client, no fallback.
         self.client.recordsets.list.return_value = [
