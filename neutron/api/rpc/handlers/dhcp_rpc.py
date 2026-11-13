@@ -42,6 +42,7 @@ import yaml
 from neutron._i18n import _
 from neutron.common.sci_netconfig import SCINetworkSettings
 from neutron.common import utils
+from neutron.conf import service as service_conf
 from neutron.db import provisioning_blocks
 from neutron.extensions import segment as segment_ext
 from neutron.objects import network as network_obj
@@ -462,6 +463,7 @@ class DhcpRpcCallback:
         version='1.10')
 
     def __init__(self):
+        service_conf.register_dns_opts(service_conf.DNSSETTINGS_OPTS)
         super().__init__()
         if cfg.CONF.customdns.enabled:
             # load config as early as possible to notice issues
