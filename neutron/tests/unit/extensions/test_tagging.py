@@ -196,6 +196,7 @@ class TaggingControllerDbTestCase(testlib_api.WebTestCase):
             'project_id': self.project_id,
             'network_id': net_id,
             'status': 'UP',
+            'device_owner': '',
         }
         self._check_resource_info(expected_port, 'ports')
 
