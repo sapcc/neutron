@@ -132,8 +132,15 @@ class DesignateCcloud(driver.ExternalDNSService):
 
         if not CONF.designate.allow_reverse_dns_lookup:
             return
+        ptr_zone_email = 'admin@%s' % dns_domain[:-1]
+        if CONF.designate.ptr_zone_email:
+            ptr_zone_email = CONF.designate.ptr_zone_email
         # Set up the PTR records
         if fip_id:
+            if CONF.designate.ptr_zone_pool_id:
+                for record in records:
+                    self._ensure_fip_ptr_zone(context, designate_admin,
+                                              record, ptr_zone_email)
             designate.floatingips.set(
                 f"{CONF.designate.region_name}:{fip_id}",
                 f"{dns_name}.{dns_domain}"
@@ -141,15 +148,11 @@ class DesignateCcloud(driver.ExternalDNSService):
         else:
             # Set up the PTR records
             recordset_name = '%s.%s' % (dns_name, dns_domain)
-            ptr_zone_email = 'admin@%s' % dns_domain[:-1]
-            if CONF.designate.ptr_zone_email:
-                ptr_zone_email = CONF.designate.ptr_zone_email
             for record in records:
                 in_addr_name = netaddr.IPAddress(record).reverse_dns
                 in_addr_zone_name = self._get_in_addr_zone_name(in_addr_name)
-                in_addr_zone_description = (
-                        'An %s zone for reverse lookups set up by Neutron.' %
-                        '.'.join(in_addr_name.split('.')[-3:]))
+                in_addr_zone_description = self._get_in_addr_zone_description(
+                    in_addr_name)
                 try:
                     # Since we don't delete in-addr zones, assume it already
                     # exists. If it doesn't, create it
@@ -176,20 +179,81 @@ class DesignateCcloud(driver.ExternalDNSService):
                     # ignore that error and try to create the recordset
                     # anyway. That call will still fail in the end if something
                     # is really broken. See bug 1891309.
-                    try:
-                        designate_admin.zones.create(
-                            in_addr_zone_name, email=ptr_zone_email,
-                            description=in_addr_zone_description)
-                    except d_exc.Conflict:
-                        LOG.debug('Conflict when trying to create PTR zone %s,'
-                                  ' assuming it exists.',
-                                  in_addr_zone_name)
-                        pass
-                    except d_exc.OverQuota:
-                        raise dns_exc.ExternalDNSOverQuota(resource='zone')
+                    self._create_ptr_zone(designate_admin, in_addr_zone_name,
+                                          ptr_zone_email,
+                                          in_addr_zone_description)
                     designate_admin.recordsets.create(in_addr_zone_name,
                                                       in_addr_name, 'PTR',
                                                       [recordset_name])
+
+    @staticmethod
+    def _get_in_addr_zone_description(in_addr_name):
+        return ('An %s zone for reverse lookups set up by Neutron.' %
+                '.'.join(in_addr_name.split('.')[-3:]))
+
+    @staticmethod
+    def _create_ptr_zone(designate_admin, zone_name, email, description):
+        """Create a PTR zone, in [designate] ptr_zone_pool_id if set.
+
+        A conflict means the zone exists already (e.g. created by a parallel
+        request) and is ignored.
+        """
+        kwargs = {'email': email, 'description': description}
+        if CONF.designate.ptr_zone_pool_id:
+            # Without being told the pool, Designate fails with
+            # multiple_pools_found when more than one pool is eligible for
+            # the project the zone is created in.
+            kwargs['attributes'] = {
+                'pool_id': CONF.designate.ptr_zone_pool_id}
+        try:
+            designate_admin.zones.create(zone_name, **kwargs)
+        except d_exc.Conflict:
+            LOG.debug('Conflict when trying to create PTR zone %s,'
+                      ' assuming it exists.', zone_name)
+        except d_exc.OverQuota:
+            raise dns_exc.ExternalDNSOverQuota(resource='zone')
+
+    def _ensure_fip_ptr_zone(self, context, designate_admin, address, email):
+        """Create the reverse zone of a floating IP in the configured pool.
+
+        The PTR record of a floating IP is set through the Designate floating
+        IP API. If the reverse zone does not exist yet, Designate creates it
+        itself, without a pool, scheduled by the domain of the floating IP's
+        project, which fails with multiple_pools_found when that domain can
+        use more than one pool. So the zone is created here first, in
+        [designate] ptr_zone_pool_id.
+
+        Designate looks the zone up by name across all projects and needs
+        exactly one match, while one project may own zones of the same name
+        in several pools. Nothing is created if a zone with the name exists
+        in any project already: a second one in another pool would make the
+        name ambiguous and break the PTR records of every address in it.
+        """
+        ip = netaddr.IPAddress(address)
+        if ip.version != constants.IP_VERSION_4:
+            # the Designate floating IP API only handles IPv4
+            return
+        in_addr_name = ip.reverse_dns
+        # The zone name has to be the one Designate derives itself, which is
+        # always the /24 of the address (NetworkAPI.address_zone), whatever
+        # [designate] ipv4_ptr_zone_prefix_size is set to.
+        zone_name = in_addr_name.split('.', 1)[1]
+        pool_id = CONF.designate.ptr_zone_pool_id
+        _client, all_projects_admin = get_all_projects_edit_managed_client(
+            context)
+        try:
+            zones = all_projects_admin.zones.list(
+                criterion={'name': zone_name})
+        except d_exc.Forbidden:
+            LOG.warning("Cannot look up PTR zone %s in all projects, so it is "
+                        "not created in pool %s.", zone_name, pool_id)
+            return
+        if zones:
+            return
+        LOG.info("Creating PTR zone %s in pool %s for %s.", zone_name, pool_id,
+                 address)
+        self._create_ptr_zone(designate_admin, zone_name, email,
+                              self._get_in_addr_zone_description(in_addr_name))
 
     def _create_or_update_recordset(self, designate_client, dns_domain,
                                     dns_name, record_type, records):
