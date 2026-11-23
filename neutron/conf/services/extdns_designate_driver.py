@@ -69,6 +69,20 @@ designate_opts = [
                       'admin@<dns_domain>')),
     cfg.StrOpt('region_name',
                help=_('Name of designate region to use.')),
+    cfg.StrOpt('ptr_zone_pool_id',
+               help=_('ID of the Designate pool to create PTR (reverse) '
+                      'zones in. Needed when Designate cannot choose the '
+                      'pool by itself for zones created with the '
+                      '[designate] credentials and fails with '
+                      'multiple_pools_found, e.g. because their project can '
+                      'use several pools. The pool is passed as the '
+                      '"pool_id" zone attribute, which these credentials '
+                      'must be allowed to set (Designate policy '
+                      'zone_create_forced_pool). For a floating IP, Neutron '
+                      'then also creates the reverse zone of its address in '
+                      'this pool before it sets the PTR record through the '
+                      'Designate floating IP API, unless a zone with that '
+                      'name exists in any project already.')),
 ]
 
 

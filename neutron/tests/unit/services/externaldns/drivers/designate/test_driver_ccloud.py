@@ -30,6 +30,10 @@ from neutron.services.externaldns.drivers.designate import driver_ccloud
 
 from .test_driver import TestDesignateDriver
 
+POOL_ID = 'f3d6d4a1-1c1e-4bb4-8f3a-5d8a7e2c9b10'
+FIP_ADDRESS = '10.220.6.250'
+FIP_PTR_ZONE = '6.220.10.in-addr.arpa.'
+
 
 class L3NatDBFloatingIpTestCaseWithDNSCcloud(L3NatDBFloatingIpTestCaseWithDNS):
     """Unit tests for floating ip with external DNS integration"""
@@ -90,6 +94,26 @@ class L3NatDBFloatingIpTestCaseWithDNSCcloud(L3NatDBFloatingIpTestCaseWithDNS):
                                        floatingip["id"])
         self.assertEqual(self.DNS_DOMAIN, floatingip['dns_domain'])
         self.assertEqual(self.DNS_NAME, floatingip['dns_name'])
+
+    @mock.patch(MOCK_PATH, **mock_config)
+    def test_floatingip_create_with_flip_dns_ptr_zone_pool(self, mock_args):
+        # With a PTR zone pool configured, the reverse zone of the floating
+        # IP is created in that pool before Designate is asked to set the PTR.
+        cfg.CONF.set_override('ptr_zone_pool_id', 'pool-1', group='designate')
+        self.mock_admin_client.zones.list.return_value = []
+        self.addCleanup(self.mock_admin_client.zones.list.reset_mock,
+                        return_value=True)
+        with self._create_floatingip_with_dns(
+                flip_dns_domain=self.DNS_DOMAIN,
+                flip_dns_name=self.DNS_NAME) as flip:
+            floatingip = flip
+        _in_addr_name, in_addr_zone_name = self._get_in_addr(
+            floatingip['floating_ip_address'])
+        self.mock_admin_client.zones.create.assert_called_once_with(
+            in_addr_zone_name, email=mock.ANY, description=mock.ANY,
+            attributes={'pool_id': 'pool-1'})
+        self._assert_recordset_created(floatingip['floating_ip_address'],
+                                       floatingip["id"])
 
     @mock.patch(MOCK_PATH, **mock_config)
     def test_floatingip_create_with_net_port_dns(self, mock_args):
@@ -346,6 +370,180 @@ class TestCCloudDesignateDriver(TestDesignateDriver):
             dns_exc.DNSDomainNotFound,
             self.driver.create_record_set, self.context, 'example.test.',
             'test', ['192.168.0.10'])
+
+    def test_create_new_zone_in_ptr_zone_pool(self):
+        # Designate cannot choose between several eligible pools by itself,
+        # so the configured pool is passed along when a PTR zone is created.
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        self.admin_client.recordsets.create.side_effect = [
+            d_exc.NotFound, None, d_exc.NotFound, None
+        ]
+
+        self.driver.create_record_set(
+            self.context, 'example.test.', 'test',
+            ['192.168.0.10', '2001:db8:0:1::1'])
+
+        self.admin_client.zones.create.assert_has_calls([
+            mock.call(
+                '0.168.192.in-addr.arpa.', email='admin@example.test',
+                description='An in-addr.arpa. zone for reverse lookups set up '
+                            'by Neutron.',
+                attributes={'pool_id': POOL_ID}),
+            mock.call(
+                '0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.8.b.d.0.1.0.'
+                '0.2.ip6.arpa.',
+                email='admin@example.test',
+                description='An ip6.arpa. zone for reverse lookups set up by '
+                            'Neutron.',
+                attributes={'pool_id': POOL_ID}),
+        ])
+        self.assertEqual(4, self.admin_client.recordsets.create.call_count)
+
+    def _create_fip_record_set(self, address=FIP_ADDRESS):
+        cfg.CONF.set_override('region_name', 'region-1', group='designate')
+        self.driver.create_record_set(self.context, 'example.test.', 'test',
+                                      [address], fip_id='fip-1')
+
+    def test_create_fip_record_set_without_ptr_zone_pool(self):
+        # Unchanged default: Designate creates a missing reverse zone itself.
+        self._create_fip_record_set()
+
+        self.fallback_client.zones.list.assert_not_called()
+        self.admin_client.zones.create.assert_not_called()
+        self.client.floatingips.set.assert_called_once_with(
+            'region-1:fip-1', 'test.example.test.')
+
+    def test_create_fip_record_set_creates_ptr_zone_in_pool(self):
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        self.fallback_client.zones.list.return_value = []
+        calls = mock.Mock()
+        calls.attach_mock(self.admin_client.zones.create, 'create_zone')
+        calls.attach_mock(self.client.floatingips.set, 'set_ptr')
+
+        self._create_fip_record_set()
+
+        # the zone may exist in any project, so the lookup covers them all
+        self.fallback_client.zones.list.assert_called_once_with(
+            criterion={'name': FIP_PTR_ZONE})
+        # the zone has to exist before Designate sets the PTR record
+        self.assertEqual([
+            mock.call.create_zone(
+                FIP_PTR_ZONE, email='admin@example.test',
+                description='An in-addr.arpa. zone for reverse lookups set up '
+                            'by Neutron.',
+                attributes={'pool_id': POOL_ID}),
+            mock.call.set_ptr('region-1:fip-1', 'test.example.test.'),
+        ], calls.mock_calls)
+
+    def test_create_fip_record_set_uses_ptr_zone_email(self):
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        cfg.CONF.set_override('ptr_zone_email', 'ptr@example.test',
+                              group='designate')
+        self.fallback_client.zones.list.return_value = []
+
+        self._create_fip_record_set()
+
+        self.admin_client.zones.create.assert_called_once_with(
+            FIP_PTR_ZONE, email='ptr@example.test', description=mock.ANY,
+            attributes={'pool_id': POOL_ID})
+
+    def test_create_fip_record_set_ptr_zone_is_designates_slash_24(self):
+        # Designate looks the zone up by the name it derives from the
+        # address, which is always the /24, so the prefix size configured for
+        # Neutron's own PTR zones must not change it.
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        cfg.CONF.set_override('ipv4_ptr_zone_prefix_size', 16,
+                              group='designate')
+        self.fallback_client.zones.list.return_value = []
+
+        self._create_fip_record_set()
+
+        self.fallback_client.zones.list.assert_called_once_with(
+            criterion={'name': FIP_PTR_ZONE})
+        self.assertEqual(
+            FIP_PTR_ZONE, self.admin_client.zones.create.call_args[0][0])
+
+    def test_create_fip_record_set_ptr_zone_exists(self):
+        # A zone of that name in any project and pool is the one Designate
+        # will use; creating another one in our pool would make the name
+        # ambiguous for Designate.
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        self.fallback_client.zones.list.return_value = [
+            {'id': 'zone-1', 'name': FIP_PTR_ZONE, 'project_id': 'tenant-2',
+             'pool_id': 'other-pool'},
+        ]
+
+        self._create_fip_record_set()
+
+        self.admin_client.zones.create.assert_not_called()
+        self.client.floatingips.set.assert_called_once_with(
+            'region-1:fip-1', 'test.example.test.')
+
+    def test_create_fip_record_set_ptr_zone_created_concurrently(self):
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        self.fallback_client.zones.list.return_value = []
+        self.admin_client.zones.create.side_effect = d_exc.Conflict
+
+        self._create_fip_record_set()
+
+        self.admin_client.zones.create.assert_called_once()
+        self.client.floatingips.set.assert_called_once_with(
+            'region-1:fip-1', 'test.example.test.')
+
+    def test_create_fip_record_set_ptr_zone_over_quota(self):
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        self.fallback_client.zones.list.return_value = []
+        self.admin_client.zones.create.side_effect = d_exc.OverQuota
+
+        self.assertRaises(dns_exc.ExternalDNSOverQuota,
+                          self._create_fip_record_set)
+        self.client.floatingips.set.assert_not_called()
+
+    def test_create_fip_record_set_ptr_zone_lookup_forbidden(self):
+        # Without knowing whether the zone exists somewhere, none is created;
+        # setting the PTR is still left to Designate.
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        self.fallback_client.zones.list.side_effect = d_exc.Forbidden
+
+        self._create_fip_record_set()
+
+        self.admin_client.zones.create.assert_not_called()
+        self.client.floatingips.set.assert_called_once_with(
+            'region-1:fip-1', 'test.example.test.')
+
+    def test_create_fip_record_set_no_ptr_zone_for_ipv6(self):
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+
+        self._create_fip_record_set(address='2001:db8:0:1::1')
+
+        self.fallback_client.zones.list.assert_not_called()
+        self.admin_client.zones.create.assert_not_called()
+        self.client.floatingips.set.assert_called_once_with(
+            'region-1:fip-1', 'test.example.test.')
+
+    def test_create_fip_record_set_without_reverse_dns(self):
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+        cfg.CONF.set_override('allow_reverse_dns_lookup', False,
+                              group='designate')
+
+        self._create_fip_record_set()
+
+        self.fallback_client.zones.list.assert_not_called()
+        self.admin_client.zones.create.assert_not_called()
+        self.client.floatingips.set.assert_not_called()
+
+    def test_create_record_set_existing_ptr_zone_in_pool_untouched(self):
+        # Only missing PTR zones are created; the pool is not checked or
+        # changed for existing ones.
+        cfg.CONF.set_override('ptr_zone_pool_id', POOL_ID, group='designate')
+
+        self.driver.create_record_set(
+            self.context, 'example.test.', 'test', ['192.168.0.10'])
+
+        self.admin_client.zones.create.assert_not_called()
+        self.admin_client.recordsets.create.assert_called_once_with(
+            '0.168.192.in-addr.arpa.', '10.0.168.192.in-addr.arpa.', 'PTR',
+            ['test.example.test.'])
 
     def test_delete_record_set_ambiguous_zone_uses_scoped_fallback(self):
         # If the zone name is ambiguous for the caller, the cleanup goes
